@@ -1,9 +1,13 @@
 /**
- * db.js - IndexedDB modul za shranjevanje podatkov o zalogi in premikih
+ * db.js - Normaliziran IndexedDB modul za vodenje zalog skladišča
+ * Razdeljen na 3 vitke tabele:
+ * 1. articles (Šifrant artiklov - ključ je SKU)
+ * 2. stock_locations (Ploščata zaloga po škatlah in regalih)
+ * 3. logs (Zgodovina premikov in izdaj)
  */
 
 const DB_NAME = 'SkladisceDB';
-const DB_VERSION = 1;
+const DB_VERSION = 3; // Popolnoma sveža, vitka 3-tabelna arhitektura (articles, stock_locations, logs)
 
 let dbInstance = null;
 
@@ -16,19 +20,30 @@ function openDB() {
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
 
-      // Tabela artiklov
-      if (!db.objectStoreNames.contains('items')) {
-        const itemStore = db.createObjectStore('items', { keyPath: 'id', autoIncrement: true });
-        itemStore.createIndex('sku', 'sku', { unique: false });
-        itemStore.createIndex('name', 'name', { unique: false });
-        itemStore.createIndex('category', 'category', { unique: false });
-        itemStore.createIndex('location', 'location', { unique: false });
+      // Popolnoma odstranimo staro zapleteno tabelo 'items'
+      if (db.objectStoreNames.contains('items')) {
+        db.deleteObjectStore('items');
       }
 
-      // Tabela premikov (zgodovina)
+      // 1. Tabela artiklov (Katalog / Šifrant artiklov)
+      if (!db.objectStoreNames.contains('articles')) {
+        const articleStore = db.createObjectStore('articles', { keyPath: 'sku' });
+        articleStore.createIndex('name', 'name', { unique: false });
+        articleStore.createIndex('category', 'category', { unique: false });
+      }
+
+      // 2. Tabela lokacij in zaloge (Ploščata zaloga po škatlah in regalih)
+      if (!db.objectStoreNames.contains('stock_locations')) {
+        const stockStore = db.createObjectStore('stock_locations', { keyPath: 'id' });
+        stockStore.createIndex('sku', 'sku', { unique: false });
+        stockStore.createIndex('shelf', 'shelf', { unique: false });
+        stockStore.createIndex('boxNum', 'boxNum', { unique: false });
+      }
+
+      // 3. Tabela premikov (Zgodovina / Dnevnik)
       if (!db.objectStoreNames.contains('logs')) {
         const logStore = db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
-        logStore.createIndex('itemId', 'itemId', { unique: false });
+        logStore.createIndex('sku', 'sku', { unique: false });
         logStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
     };
@@ -55,9 +70,6 @@ function parseBoxInfo(boxInfo) {
   return { boxCurrent: 1, boxTotal: 1 };
 }
 
-/**
- * Normalizira lokacije posamezne škatle s podporo za več regalov (primarni + rezerva/preliv)
- */
 function normalizeBoxLocations(bData, fallbackLoc = 'Brez lokacije') {
   if (!bData) {
     return {
@@ -76,7 +88,6 @@ function normalizeBoxLocations(bData, fallbackLoc = 'Brez lokacije') {
     }));
   } else {
     const rawLoc = String(bData.location || fallbackLoc).trim();
-    // Če niz vsebuje npr. "Regal P-04 (4 kos) / Regal P-09 (2 kos)"
     const parts = rawLoc.split(/\s*[\/,+]\s*/).filter(Boolean);
     if (parts.length > 1 && parts.some(p => /\(\s*\d+\s*(?:kos|kom)?\s*\)/i.test(p))) {
       let parsedSum = 0;
@@ -149,6 +160,75 @@ const DB = {
   normalizeBoxLocations,
   normalizeItemBoxes,
 
+  /**
+   * Sestavi enoten objekt artikla iz tabele 'articles' in pripadajočih vrstic 'stock_locations'
+   */
+  buildItemFromArticleAndStocks(art, stocks = []) {
+    const sku = String(art.sku || '').trim();
+    const boxTotal = Math.max(1, parseInt(art.boxTotal, 10) || 1);
+    const boxes = {};
+    const boxCounts = [];
+
+    const byBox = new Map();
+    for (let b = 1; b <= boxTotal; b++) byBox.set(b, []);
+    for (const s of stocks) {
+      const bNum = Math.min(boxTotal, Math.max(1, parseInt(s.boxNum, 10) || 1));
+      if (!byBox.has(bNum)) byBox.set(bNum, []);
+      byBox.get(bNum).push(s);
+    }
+
+    let primaryShelf = 'Brez lokacije';
+
+    for (let b = 1; b <= boxTotal; b++) {
+      const locList = byBox.get(b) || [];
+      const formattedLocs = locList.map(l => ({
+        name: l.shelf || 'Brez lokacije',
+        count: Math.max(0, Number(l.count) || 0),
+        isPrimary: !!l.isPrimary
+      }));
+
+      if (formattedLocs.length === 0) {
+        formattedLocs.push({ name: 'Brez lokacije', count: 0, isPrimary: true });
+      }
+
+      const totalCount = formattedLocs.reduce((sum, l) => sum + l.count, 0);
+      boxCounts.push(totalCount);
+
+      const activePrimary = formattedLocs.find(l => l.isPrimary) || formattedLocs[0];
+      if (b === 1 && activePrimary && activePrimary.name !== 'Brez lokacije') {
+        primaryShelf = activePrimary.name;
+      }
+
+      const summary = formattedLocs.length <= 1
+        ? (formattedLocs[0]?.name || 'Brez lokacije')
+        : formattedLocs.map(l => `${l.name} (${l.count} kos)`).join(' / ');
+
+      boxes[b] = {
+        count: totalCount,
+        location: summary,
+        locations: formattedLocs
+      };
+    }
+
+    const completeSets = (boxTotal > 1) ? Math.min(...boxCounts) : (boxCounts[0] || 0);
+
+    return {
+      id: sku, // SKU je primarni identifikator artikla
+      sku: sku,
+      name: art.name || `Artikel ${sku}`,
+      category: art.category || 'Splošno',
+      boxTotal: boxTotal,
+      boxInfo: `Box 1/${boxTotal}`,
+      minQuantity: Number(art.minQuantity) || 0,
+      unit: art.unit || (boxTotal > 1 ? 'garnitura' : 'kos'),
+      notes: art.notes || '',
+      lastUpdated: art.lastUpdated || new Date().toISOString(),
+      location: primaryShelf,
+      quantity: completeSets,
+      boxes: boxes
+    };
+  },
+
   getBoxStats(item) {
     const it = normalizeItemBoxes(item);
     const boxTotal = it.boxTotal;
@@ -196,528 +276,466 @@ const DB = {
     };
   },
 
+  /**
+   * Vrne vse artikle s popolnimi podatki o zalogah po regalih
+   */
   async getAllItems() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('items', 'readonly');
-      const store = tx.objectStore('items');
-      const req = store.getAll();
-      req.onsuccess = () => {
-        const items = (req.result || []).map(normalizeItemBoxes);
+      const tx = db.transaction(['articles', 'stock_locations'], 'readonly');
+      const articleStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+
+      const articlesReq = articleStore.getAll();
+      const stockReq = stockStore.getAll();
+
+      let articles = [];
+      let stocks = [];
+      let ready = 0;
+
+      const finish = () => {
+        ready++;
+        if (ready < 2) return;
+
+        const stockMap = new Map();
+        for (const s of stocks) {
+          const sku = String(s.sku || '').trim();
+          if (!stockMap.has(sku)) stockMap.set(sku, []);
+          stockMap.get(sku).push(s);
+        }
+
+        const items = articles.map(art => {
+          const sku = String(art.sku || '').trim();
+          const artStocks = stockMap.get(sku) || [];
+          return DB.buildItemFromArticleAndStocks(art, artStocks);
+        });
+
         resolve(items);
       };
-      req.onerror = () => reject(req.error);
+
+      articlesReq.onsuccess = () => { articles = articlesReq.result || []; finish(); };
+      articlesReq.onerror = () => reject(articlesReq.error);
+
+      stockReq.onsuccess = () => { stocks = stockReq.result || []; finish(); };
+      stockReq.onerror = () => reject(stockReq.error);
     });
   },
 
   async getItemById(id) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('items', 'readonly');
-      const store = tx.objectStore('items');
-      const req = store.get(Number(id));
-      req.onsuccess = () => {
-        if (req.result) {
-          resolve(normalizeItemBoxes(req.result));
-        } else {
-          resolve(null);
-        }
-      };
-      req.onerror = () => reject(req.error);
-    });
+    if (!id) return null;
+    return this.getItemBySKU(String(id).trim());
   },
 
   async getItemBySKU(sku) {
+    if (!sku) return null;
+    const cleanSku = String(sku).trim();
     const db = await openDB();
+
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('items', 'readonly');
-      const store = tx.objectStore('items');
-      const req = store.openCursor();
-      const cleanSKU = String(sku).trim().toLowerCase();
-      let found = null;
+      const tx = db.transaction(['articles', 'stock_locations'], 'readonly');
+      const articleStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
 
-      req.onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (cursor) {
-          if (String(cursor.value.sku || '').trim().toLowerCase() === cleanSKU) {
-            found = normalizeItemBoxes(cursor.value);
-            resolve(found);
-            return;
-          }
-          cursor.continue();
-        } else {
-          resolve(found);
-        }
-      };
-      req.onerror = () => reject(req.error);
-    });
-  },
+      const artReq = articleStore.get(cleanSku);
+      const stockIndex = stockStore.index('sku');
+      const stockReq = stockIndex.getAll(cleanSku);
 
-  mergeItemObjects(baseItem, incomingItem) {
-    const base = normalizeItemBoxes(baseItem);
-    const inc = normalizeItemBoxes(incomingItem);
-
-    const maxBoxTotal = Math.max(1, base.boxTotal || 1, inc.boxTotal || 1);
-    base.boxTotal = maxBoxTotal;
-
-    if ((!base.name || base.name.startsWith('Artikel ') || base.name.startsWith('Neznan')) && inc.name && !inc.name.startsWith('Artikel ')) {
-      base.name = inc.name;
-    }
-    if ((!base.category || base.category === 'Splošno') && inc.category && inc.category !== 'Splošno') {
-      base.category = inc.category;
-    }
-    if (inc.piecesPerBox && (!base.piecesPerBox || base.piecesPerBox === 1)) {
-      base.piecesPerBox = inc.piecesPerBox;
-    }
-    if (inc.unit && (!base.unit || base.unit === 'kos')) {
-      base.unit = inc.unit;
-    }
-    if (inc.notes) {
-      base.notes = base.notes ? (base.notes.includes(inc.notes) ? base.notes : `${base.notes} | ${inc.notes}`) : inc.notes;
-    }
-
-    if (!base.boxes) base.boxes = {};
-    const boxCounts = [];
-
-    for (let b = 1; b <= maxBoxTotal; b++) {
-      const bBase = base.boxes[b] || { count: 0, location: base.location || 'Brez lokacije', locations: [] };
-      const bInc = inc.boxes?.[b] || null;
-
-      const normBase = normalizeBoxLocations(bBase, base.location || 'Brez lokacije');
-      let combinedLocations = [...normBase.locations];
-
-      if (bInc) {
-        const normInc = normalizeBoxLocations(bInc, inc.location || 'Brez lokacije');
-        for (const incLoc of normInc.locations) {
-          const locNameClean = String(incLoc.name || 'Brez lokacije').trim().toLowerCase();
-          const matchLoc = combinedLocations.find(l => String(l.name || '').trim().toLowerCase() === locNameClean);
-          if (matchLoc) {
-            // Posodobi ali seštej količino na tej lokaciji
-            matchLoc.count = Math.max(0, (Number(matchLoc.count) || 0) + (Number(incLoc.count) || 0));
-          } else {
-            combinedLocations.push({
-              name: incLoc.name,
-              count: Math.max(0, Number(incLoc.count) || 0),
-              isPrimary: combinedLocations.length === 0
-            });
-          }
-        }
-      }
-
-      const totalBoxCount = combinedLocations.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
-      let summaryLoc = '';
-      if (combinedLocations.length <= 1) {
-        summaryLoc = combinedLocations[0]?.name || 'Brez lokacije';
-      } else {
-        summaryLoc = combinedLocations.map(l => `${l.name} (${l.count} kos)`).join(' / ');
-      }
-
-      base.boxes[b] = {
-        count: totalBoxCount,
-        location: summaryLoc,
-        locations: combinedLocations
-      };
-      boxCounts.push(totalBoxCount);
-    }
-
-    base.quantity = (maxBoxTotal > 1) ? Math.min(...boxCounts) : (boxCounts[0] || 0);
-    base.location = base.boxes[1]?.location || base.location || 'Brez lokacije';
-    base.lastUpdated = new Date().toISOString();
-
-    return base;
-  },
-
-  async deduplicateItems() {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
-      const logStore = tx.objectStore('logs');
-
-      const getAllReq = itemStore.getAll();
-      const getLogsReq = logStore.getAll();
-
-      let items = [];
-      let logs = [];
+      let article = null;
+      let stocks = [];
       let ready = 0;
 
-      const processDeduplication = () => {
+      const finish = () => {
         ready++;
         if (ready < 2) return;
-
-        const skuGroups = new Map();
-        for (const it of items) {
-          const rawSku = String(it.sku || '').trim().toLowerCase();
-          if (!rawSku) continue;
-
-          if (!skuGroups.has(rawSku)) {
-            skuGroups.set(rawSku, []);
-          }
-          skuGroups.get(rawSku).push(it);
-        }
-
-        let mergedGroupsCount = 0;
-        let removedDuplicatesCount = 0;
-        const affectedSkus = [];
-
-        for (const [sku, group] of skuGroups.entries()) {
-          if (group.length <= 1) continue;
-
-          // Uredi po ID naraščajoče: najstarejši zapis ostane primarni
-          group.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
-          const primary = group[0];
-          const duplicates = group.slice(1);
-
-          for (const dup of duplicates) {
-            DB.mergeItemObjects(primary, dup);
-            itemStore.delete(Number(dup.id));
-            removedDuplicatesCount++;
-
-            // Dnevnik premikov preusmeri na primarni artikel
-            logs.forEach(l => {
-              if (Number(l.itemId) === Number(dup.id)) {
-                l.itemId = primary.id;
-                logStore.put(l);
-              }
-            });
-          }
-
-          itemStore.put(primary);
-          mergedGroupsCount++;
-          affectedSkus.push(primary.sku || sku);
-        }
-
-        tx.oncomplete = () => {
-          resolve({
-            mergedGroupsCount,
-            removedDuplicatesCount,
-            affectedSkus
-          });
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-
-      getAllReq.onsuccess = () => {
-        items = getAllReq.result || [];
-        processDeduplication();
-      };
-      getAllReq.onerror = () => reject(getAllReq.error);
-
-      getLogsReq.onsuccess = () => {
-        logs = getLogsReq.result || [];
-        processDeduplication();
-      };
-      getLogsReq.onerror = () => reject(getLogsReq.error);
-    });
-  },
-
-  async addItem(item) {
-    const cleanSku = String(item.sku || '').trim();
-
-    // Preprečevanje podvajanja: če artikel s to šifro (SKU) že obstaja, združi zalogo in škatle
-    if (cleanSku) {
-      const existing = await this.getItemBySKU(cleanSku);
-      if (existing) {
-        const merged = this.mergeItemObjects(existing, item);
-        await this.updateItem(merged);
-
-        const db = await openDB();
-        const tx = db.transaction('logs', 'readwrite');
-        const logStore = tx.objectStore('logs');
-        logStore.add({
-          itemId: merged.id,
-          sku: merged.sku,
-          itemName: merged.name,
-          changeType: 'in',
-          changeAmount: Number(item.quantity) || 0,
-          resultingQty: merged.quantity,
-          note: `Združitev ob ponovnem vnosu (${item.boxInfo || 'Box 1/1'})`,
-          timestamp: new Date().toISOString()
-        });
-
-        return { id: merged.id, wasMerged: true };
-      }
-    }
-
-    const db = await openDB();
-    const parsed = parseBoxInfo(item.boxInfo);
-    const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
-
-    let boxes = item.boxes;
-    if (!boxes || typeof boxes !== 'object') {
-      boxes = {};
-      for (let b = 1; b <= boxTotal; b++) {
-        boxes[b] = {
-          count: (boxTotal === 1) ? (Number(item.quantity) || 0) : ((b === parsed.boxCurrent) ? (Number(item.quantity) || 0) : 0),
-          location: String(item.location || 'Brez lokacije').trim()
-        };
-      }
-    }
-
-    const itemData = {
-      sku: String(item.sku || '').trim(),
-      name: String(item.name || '').trim(),
-      category: String(item.category || 'Splošno').trim(),
-      location: String(item.location || 'Brez lokacije').trim(),
-      quantity: Number(item.quantity) || 0,
-      minQuantity: Number(item.minQuantity) || 0,
-      unit: String(item.unit || 'kos').trim(),
-      boxInfo: String(item.boxInfo || `Box 1/${boxTotal}`).trim(),
-      boxTotal: boxTotal,
-      boxes: boxes,
-      piecesPerBox: Number(item.piecesPerBox) || 1,
-      notes: String(item.notes || '').trim(),
-      lastUpdated: new Date().toISOString()
-    };
-
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
-      const logStore = tx.objectStore('logs');
-
-      const req = itemStore.add(itemData);
-      req.onsuccess = () => {
-        const newId = req.result;
-        logStore.add({
-          itemId: newId,
-          sku: itemData.sku,
-          itemName: itemData.name,
-          changeType: 'create',
-          changeAmount: itemData.quantity,
-          resultingQty: itemData.quantity,
-          note: `Začetni vnos (${itemData.boxInfo}, lokacija: ${itemData.location})`,
-          timestamp: new Date().toISOString()
-        });
-        resolve({ id: newId, wasMerged: false });
-      };
-      req.onerror = () => reject(req.error);
-    });
-  },
-
-  async updateItem(item) {
-    const db = await openDB();
-    const parsed = parseBoxInfo(item.boxInfo);
-    const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
-
-    let boxes = item.boxes;
-    if (!boxes || typeof boxes !== 'object') {
-      boxes = {};
-      for (let b = 1; b <= boxTotal; b++) {
-        boxes[b] = {
-          count: (boxTotal === 1) ? (Number(item.quantity) || 0) : 0,
-          location: String(item.location || 'Brez lokacije').trim()
-        };
-      }
-    }
-
-    const updatedData = {
-      ...item,
-      id: Number(item.id),
-      sku: String(item.sku || '').trim(),
-      name: String(item.name || '').trim(),
-      category: String(item.category || 'Splošno').trim(),
-      location: String(item.location || 'Brez lokacije').trim(),
-      quantity: Number(item.quantity) || 0,
-      minQuantity: Number(item.minQuantity) || 0,
-      unit: String(item.unit || 'kos').trim(),
-      boxInfo: String(item.boxInfo || `Box 1/${boxTotal}`).trim(),
-      boxTotal: boxTotal,
-      boxes: boxes,
-      piecesPerBox: Number(item.piecesPerBox) || 1,
-      notes: String(item.notes || '').trim(),
-      lastUpdated: new Date().toISOString()
-    };
-
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('items', 'readwrite');
-      const store = tx.objectStore('items');
-      const req = store.put(updatedData);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  },
-
-  async deleteItem(id) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
-      const logStore = tx.objectStore('logs');
-
-      const getReq = itemStore.get(Number(id));
-      getReq.onsuccess = () => {
-        const existing = getReq.result;
-        if (existing) {
-          logStore.add({
-            itemId: existing.id,
-            sku: existing.sku,
-            itemName: existing.name,
-            changeType: 'delete',
-            changeAmount: -existing.quantity,
-            resultingQty: 0,
-            note: 'Izbris artikla iz zaloge',
-            timestamp: new Date().toISOString()
-          });
-        }
-        itemStore.delete(Number(id));
-        resolve(true);
-      };
-      getReq.onerror = () => reject(getReq.error);
-    });
-  },
-
-  async adjustStock(id, delta, note = '', type = 'adjust', boxNum = null, boxLocation = null) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
-      const logStore = tx.objectStore('logs');
-
-      const getReq = itemStore.get(Number(id));
-      getReq.onsuccess = () => {
-        let item = getReq.result;
-        if (!item) {
-          reject(new Error('Artikel ne obstaja.'));
+        if (!article) {
+          resolve(null);
           return;
         }
-
-        item = normalizeItemBoxes(item);
-        const bNum = boxNum ? parseInt(boxNum, 10) : 1;
-
-        if (boxLocation) {
-          const cleanLoc = String(boxLocation).trim();
-          if (cleanLoc && item.boxes[bNum]) {
-            const locs = item.boxes[bNum].locations || [];
-            let foundLoc = locs.find(l => l.name.toLowerCase() === cleanLoc.toLowerCase());
-            if (foundLoc) {
-              foundLoc.count = Math.max(0, (Number(foundLoc.count) || 0) + Number(delta));
-            } else {
-              locs.push({
-                name: cleanLoc,
-                count: Math.max(0, Number(delta)),
-                isPrimary: locs.length === 0
-              });
-            }
-            item.boxes[bNum] = normalizeBoxLocations(item.boxes[bNum], cleanLoc);
-          }
-        } else if (item.boxes && item.boxes[bNum]) {
-          let remaining = Math.abs(Number(delta));
-          const locs = item.boxes[bNum].locations || [];
-          if (delta >= 0) {
-            if (locs.length > 0) {
-              locs[0].count = (Number(locs[0].count) || 0) + remaining;
-            } else {
-              locs.push({ name: item.location || 'Brez lokacije', count: remaining, isPrimary: true });
-            }
-          } else {
-            for (let l of locs) {
-              if (remaining <= 0) break;
-              if (l.count > 0) {
-                const take = Math.min(l.count, remaining);
-                l.count -= take;
-                remaining -= take;
-              }
-            }
-            if (remaining > 0 && locs.length > 0) {
-              locs[0].count = Math.max(0, locs[0].count - remaining);
-            }
-          }
-          item.boxes[bNum] = normalizeBoxLocations(item.boxes[bNum], item.location);
-        }
-
-        // Izračunaj nove statistike kompletov
-        const stats = DB.getBoxStats(item);
-        item.quantity = stats.completeSets;
-        item.lastUpdated = new Date().toISOString();
-
-        itemStore.put(item);
-
-        const boxDetailsText = (item.boxTotal > 1) 
-          ? ` (Škatla ${bNum}/${item.boxTotal}${boxLocation ? ` @ ${boxLocation}` : ''}, celih kompletov: ${stats.completeSets})`
-          : (boxLocation ? ` (@ ${boxLocation})` : '');
-
-        logStore.add({
-          itemId: item.id,
-          sku: item.sku,
-          itemName: item.name,
-          changeType: type,
-          changeAmount: Number(delta),
-          resultingQty: item.quantity,
-          note: (note || (delta >= 0 ? 'Prevzem blaga' : 'Izdaja blaga')) + boxDetailsText,
-          timestamp: new Date().toISOString()
-        });
-
-        resolve(item);
+        resolve(DB.buildItemFromArticleAndStocks(article, stocks));
       };
-      getReq.onerror = () => reject(getReq.error);
+
+      artReq.onsuccess = () => { article = artReq.result || null; finish(); };
+      artReq.onerror = () => reject(artReq.error);
+
+      stockReq.onsuccess = () => { stocks = stockReq.result || []; finish(); };
+      stockReq.onerror = () => reject(stockReq.error);
     });
   },
 
   /**
-   * Izdaja celotnega artikla (odšteje po 1 kos od vseh škatel pri večdelnih garniturah)
+   * Dodajanje ali združevanje artikla (SKU je enolični ključ)
    */
-  async issueCompleteItem(id, qty = 1, note = '') {
+  async addItem(itemData) {
+    const cleanSku = String(itemData.sku || '').trim();
+    if (!cleanSku) throw new Error('Šifra artikla (SKU) je obvezna.');
+
     const db = await openDB();
+    const boxTotal = Math.max(1, parseInt(itemData.boxTotal, 10) || 1);
+
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
       const logStore = tx.objectStore('logs');
 
-      const getReq = itemStore.get(Number(id));
-      getReq.onsuccess = () => {
-        let item = getReq.result;
-        if (!item) {
-          reject(new Error('Artikel ne obstaja.'));
-          return;
-        }
+      const checkReq = artStore.get(cleanSku);
+      checkReq.onsuccess = () => {
+        const existing = checkReq.result;
+        const wasMerged = !!existing;
 
-        item = normalizeItemBoxes(item);
-        const boxTotal = Math.max(1, item.boxTotal || 1);
-        const issueQty = Math.max(1, Number(qty) || 1);
-        const pickDetails = [];
+        const artRecord = {
+          sku: cleanSku,
+          name: String(itemData.name || '').trim() || (existing ? existing.name : `Artikel ${cleanSku}`),
+          category: String(itemData.category || 'Splošno').trim(),
+          boxTotal: Math.max(boxTotal, existing ? existing.boxTotal : 1),
+          minQuantity: Number(itemData.minQuantity) || (existing ? existing.minQuantity : 0),
+          unit: String(itemData.unit || (boxTotal > 1 ? 'garnitura' : 'kos')).trim(),
+          notes: String(itemData.notes || '').trim() || (existing ? existing.notes : ''),
+          lastUpdated: new Date().toISOString()
+        };
 
-        for (let b = 1; b <= boxTotal; b++) {
-          if (!item.boxes[b]) {
-            item.boxes[b] = { count: 0, location: item.location || 'Brez lokacije', locations: [] };
-          }
-          let remaining = issueQty;
-          const locs = item.boxes[b].locations || [];
-          for (let l of locs) {
-            if (remaining <= 0) break;
-            if (l.count > 0) {
-              const take = Math.min(l.count, remaining);
-              l.count -= take;
-              remaining -= take;
-              pickDetails.push(`Šk.${b}: ${take}x iz ${l.name}`);
+        artStore.put(artRecord);
+
+        if (itemData.boxes && typeof itemData.boxes === 'object') {
+          for (let b = 1; b <= artRecord.boxTotal; b++) {
+            const bData = itemData.boxes[b];
+            if (!bData) continue;
+            const locs = (Array.isArray(bData.locations) && bData.locations.length > 0)
+              ? bData.locations
+              : [{ name: bData.location || itemData.location || 'Brez lokacije', count: bData.count || 0, isPrimary: true }];
+
+            for (const loc of locs) {
+              const shelfName = String(loc.name || 'Brez lokacije').trim();
+              const locId = `${cleanSku}_b${b}_${shelfName}`;
+
+              const getLocReq = stockStore.get(locId);
+              getLocReq.onsuccess = () => {
+                const prev = getLocReq.result;
+                const newCount = prev ? (prev.count + (Number(loc.count) || 0)) : (Number(loc.count) || 0);
+                stockStore.put({
+                  id: locId,
+                  sku: cleanSku,
+                  boxNum: b,
+                  shelf: shelfName,
+                  count: Math.max(0, newCount),
+                  isPrimary: !!loc.isPrimary,
+                  lastUpdated: new Date().toISOString()
+                });
+              };
             }
           }
-          if (remaining > 0 && locs.length > 0) {
-            locs[0].count = Math.max(0, locs[0].count - remaining);
-          }
-          item.boxes[b] = normalizeBoxLocations(item.boxes[b], item.location);
+        } else {
+          const shelfName = String(itemData.location || 'Brez lokacije').trim();
+          const locId = `${cleanSku}_b1_${shelfName}`;
+          const count = Number(itemData.quantity) || 0;
+          stockStore.put({
+            id: locId,
+            sku: cleanSku,
+            boxNum: 1,
+            shelf: shelfName,
+            count: count,
+            isPrimary: true,
+            lastUpdated: new Date().toISOString()
+          });
         }
 
-        const stats = DB.getBoxStats(item);
-        item.quantity = stats.completeSets;
-        item.lastUpdated = new Date().toISOString();
-
-        itemStore.put(item);
-
-        const pickSummary = pickDetails.length > 0 ? ` [${pickDetails.join(', ')}]` : '';
         logStore.add({
-          itemId: item.id,
-          sku: item.sku,
-          itemName: item.name,
-          changeType: 'out',
-          changeAmount: -issueQty,
-          resultingQty: item.quantity,
-          note: (note || 'Izdaja artikla kupcu') + ` (-${issueQty}x komplet${pickSummary}, preostalo: ${item.quantity})`,
+          sku: cleanSku,
+          itemName: artRecord.name,
+          changeType: wasMerged ? 'in' : 'create',
+          changeAmount: Number(itemData.quantity) || 0,
+          resultingQty: Number(itemData.quantity) || 0,
+          note: wasMerged ? 'Združitev zaloge ob ponovnem vnosu' : `Začetni vnos (${artRecord.boxTotal} škatel)`,
           timestamp: new Date().toISOString()
         });
 
-        resolve(item);
+        tx.oncomplete = () => {
+          resolve({ id: cleanSku, sku: cleanSku, wasMerged });
+        };
+        tx.onerror = () => reject(tx.error);
       };
-      getReq.onerror = () => reject(getReq.error);
+      checkReq.onerror = () => reject(checkReq.error);
+    });
+  },
+
+  /**
+   * Posodobitev obstoječega artikla
+   */
+  async updateItem(itemData) {
+    const cleanSku = String(itemData.sku || '').trim();
+    if (!cleanSku) throw new Error('Šifra artikla (SKU) je obvezna.');
+
+    const db = await openDB();
+    const boxTotal = Math.max(1, parseInt(itemData.boxTotal, 10) || 1);
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+
+      const artRecord = {
+        sku: cleanSku,
+        name: String(itemData.name || '').trim(),
+        category: String(itemData.category || 'Splošno').trim(),
+        boxTotal: boxTotal,
+        minQuantity: Number(itemData.minQuantity) || 0,
+        unit: String(itemData.unit || (boxTotal > 1 ? 'garnitura' : 'kos')).trim(),
+        notes: String(itemData.notes || '').trim(),
+        lastUpdated: new Date().toISOString()
+      };
+      artStore.put(artRecord);
+
+      const stockIndex = stockStore.index('sku');
+      const getExistingStocks = stockIndex.getAll(cleanSku);
+
+      getExistingStocks.onsuccess = () => {
+        const existingStocks = getExistingStocks.result || [];
+        existingStocks.forEach(s => stockStore.delete(s.id));
+
+        if (itemData.boxes && typeof itemData.boxes === 'object') {
+          for (let b = 1; b <= boxTotal; b++) {
+            const bData = itemData.boxes[b];
+            if (!bData) continue;
+            const locs = (Array.isArray(bData.locations) && bData.locations.length > 0)
+              ? bData.locations
+              : [{ name: bData.location || itemData.location || 'Brez lokacije', count: bData.count || 0, isPrimary: true }];
+
+            locs.forEach((loc, idx) => {
+              const shelfName = String(loc.name || 'Brez lokacije').trim();
+              stockStore.put({
+                id: `${cleanSku}_b${b}_${shelfName}`,
+                sku: cleanSku,
+                boxNum: b,
+                shelf: shelfName,
+                count: Math.max(0, Number(loc.count) || 0),
+                isPrimary: loc.isPrimary !== undefined ? !!loc.isPrimary : (idx === 0),
+                lastUpdated: new Date().toISOString()
+              });
+            });
+          }
+        } else {
+          const shelfName = String(itemData.location || 'Brez lokacije').trim();
+          stockStore.put({
+            id: `${cleanSku}_b1_${shelfName}`,
+            sku: cleanSku,
+            boxNum: 1,
+            shelf: shelfName,
+            count: Number(itemData.quantity) || 0,
+            isPrimary: true,
+            lastUpdated: new Date().toISOString()
+          });
+        }
+      };
+
+      tx.oncomplete = () => resolve(cleanSku);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async deleteItem(sku) {
+    const cleanSku = String(sku).trim();
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      const artReq = artStore.get(cleanSku);
+      artReq.onsuccess = () => {
+        const art = artReq.result;
+        if (art) {
+          logStore.add({
+            sku: cleanSku,
+            itemName: art.name,
+            changeType: 'delete',
+            changeAmount: 0,
+            resultingQty: 0,
+            note: 'Izbris artikla iz zaloge',
+            timestamp: new Date().toISOString()
+          });
+          artStore.delete(cleanSku);
+        }
+
+        const stockIndex = stockStore.index('sku');
+        const stocksReq = stockIndex.getAll(cleanSku);
+        stocksReq.onsuccess = () => {
+          (stocksReq.result || []).forEach(s => stockStore.delete(s.id));
+        };
+      };
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  /**
+   * Sprememba zaloge posamezne škatle na regalu
+   */
+  async adjustStock(sku, delta, note = '', type = 'adjust', boxNum = null, shelf = null) {
+    const cleanSku = String(sku).trim();
+    const db = await openDB();
+    const bNum = boxNum ? Math.max(1, parseInt(boxNum, 10)) : 1;
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      const artReq = artStore.get(cleanSku);
+      artReq.onsuccess = () => {
+        const art = artReq.result;
+        if (!art) {
+          reject(new Error(`Artikel s šifro ${cleanSku} ne obstaja.`));
+          return;
+        }
+
+        const stockIndex = stockStore.index('sku');
+        const stocksReq = stockIndex.getAll(cleanSku);
+
+        stocksReq.onsuccess = () => {
+          const stocks = stocksReq.result || [];
+          const boxStocks = stocks.filter(s => s.boxNum === bNum);
+
+          let targetStock = null;
+          if (shelf) {
+            const cleanShelf = String(shelf).trim();
+            targetStock = boxStocks.find(s => s.shelf.toLowerCase() === cleanShelf.toLowerCase());
+            if (!targetStock) {
+              targetStock = {
+                id: `${cleanSku}_b${bNum}_${cleanShelf}`,
+                sku: cleanSku,
+                boxNum: bNum,
+                shelf: cleanShelf,
+                count: 0,
+                isPrimary: boxStocks.length === 0,
+                lastUpdated: new Date().toISOString()
+              };
+              stocks.push(targetStock);
+            }
+          } else {
+            targetStock = boxStocks.find(s => s.isPrimary) || boxStocks[0];
+            if (!targetStock) {
+              targetStock = {
+                id: `${cleanSku}_b${bNum}_Regal Glavni`,
+                sku: cleanSku,
+                boxNum: bNum,
+                shelf: 'Regal Glavni',
+                count: 0,
+                isPrimary: true,
+                lastUpdated: new Date().toISOString()
+              };
+              stocks.push(targetStock);
+            }
+          }
+
+          if (delta >= 0) {
+            targetStock.count += Number(delta);
+          } else {
+            let toRemove = Math.abs(Number(delta));
+            if (targetStock.count >= toRemove) {
+              targetStock.count -= toRemove;
+            } else {
+              toRemove -= targetStock.count;
+              targetStock.count = 0;
+              for (const other of boxStocks) {
+                if (other !== targetStock && other.count > 0 && toRemove > 0) {
+                  const take = Math.min(other.count, toRemove);
+                  other.count -= take;
+                  toRemove -= take;
+                  stockStore.put(other);
+                }
+              }
+            }
+          }
+
+          targetStock.lastUpdated = new Date().toISOString();
+          stockStore.put(targetStock);
+
+          const updatedItem = DB.buildItemFromArticleAndStocks(art, stocks);
+
+          logStore.add({
+            sku: cleanSku,
+            itemName: art.name,
+            boxNum: bNum,
+            shelf: targetStock.shelf,
+            changeType: type,
+            changeAmount: Number(delta),
+            resultingQty: updatedItem.quantity,
+            note: (note || (delta >= 0 ? 'Prevzem škatle' : 'Izdaja škatle')) + (art.boxTotal > 1 ? ` (Šk. ${bNum}/${art.boxTotal} @ ${targetStock.shelf})` : ` (@ ${targetStock.shelf})`),
+            timestamp: new Date().toISOString()
+          });
+
+          tx.oncomplete = () => resolve(updatedItem);
+        };
+      };
+      artReq.onerror = () => reject(artReq.error);
+    });
+  },
+
+  /**
+   * Izdaja celotne garniture (odšteje škatle iz vseh potrebnih regalov)
+   */
+  async issueCompleteItem(sku, qty = 1, note = '') {
+    const cleanSku = String(sku).trim();
+    const issueQty = Math.max(1, Number(qty) || 1);
+    const db = await openDB();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      const artReq = artStore.get(cleanSku);
+      artReq.onsuccess = () => {
+        const art = artReq.result;
+        if (!art) {
+          reject(new Error(`Artikel s šifro ${cleanSku} ne obstaja.`));
+          return;
+        }
+
+        const boxTotal = Math.max(1, art.boxTotal || 1);
+        const stockIndex = stockStore.index('sku');
+        const stocksReq = stockIndex.getAll(cleanSku);
+
+        stocksReq.onsuccess = () => {
+          const stocks = stocksReq.result || [];
+          const pickDetails = [];
+
+          for (let b = 1; b <= boxTotal; b++) {
+            let remaining = issueQty;
+            const boxStocks = stocks.filter(s => s.boxNum === b);
+            for (const s of boxStocks) {
+              if (remaining <= 0) break;
+              if (s.count > 0) {
+                const take = Math.min(s.count, remaining);
+                s.count -= take;
+                remaining -= take;
+                s.lastUpdated = new Date().toISOString();
+                stockStore.put(s);
+                pickDetails.push(`Šk.${b}: ${take}x iz ${s.shelf}`);
+              }
+            }
+          }
+
+          const updatedItem = DB.buildItemFromArticleAndStocks(art, stocks);
+
+          logStore.add({
+            sku: cleanSku,
+            itemName: art.name,
+            changeType: 'out',
+            changeAmount: -issueQty,
+            resultingQty: updatedItem.quantity,
+            note: (note || 'Izdaja po računu') + ` (-${issueQty}x garnitura [${pickDetails.join(', ')}], preostalo: ${updatedItem.quantity})`,
+            timestamp: new Date().toISOString()
+          });
+
+          tx.oncomplete = () => resolve(updatedItem);
+        };
+      };
+      artReq.onerror = () => reject(artReq.error);
     });
   },
 
@@ -747,443 +765,339 @@ const DB = {
     });
   },
 
+  /**
+   * Uveljavi rezultate inventure v stock_locations
+   */
+  async applyAuditResults(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return { totalAdjustments: 0 };
+    const db = await openDB();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      let adjustments = 0;
+
+      for (const entry of entries) {
+        if (!entry.isCounted) continue;
+        const counted = Math.max(0, parseInt(entry.countedQty, 10) || 0);
+        const book = Math.max(0, parseInt(entry.bookQty, 10) || 0);
+        const diff = counted - book;
+        if (diff === 0) continue;
+
+        const locId = `${entry.sku}_b${entry.boxNum}_${entry.locName}`;
+        stockStore.put({
+          id: locId,
+          sku: entry.sku,
+          boxNum: entry.boxNum,
+          shelf: entry.locName,
+          count: counted,
+          isPrimary: true,
+          lastUpdated: new Date().toISOString()
+        });
+
+        logStore.add({
+          sku: entry.sku,
+          itemName: entry.name,
+          boxNum: entry.boxNum,
+          shelf: entry.locName,
+          changeType: 'adjust',
+          changeAmount: diff,
+          resultingQty: counted,
+          note: `Inventurna izravnava (knjižno: ${book}, prešteto: ${counted}, razlika: ${diff > 0 ? '+' : ''}${diff})`,
+          timestamp: new Date().toISOString()
+        });
+
+        adjustments++;
+      }
+
+      tx.oncomplete = () => resolve({ totalAdjustments: adjustments });
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  /**
+   * Deduplikacija artiklov (v normalizirani bazi je SKU primarni ključ)
+   */
+  async deduplicateItems() {
+    return {
+      mergedGroupsCount: 0,
+      removedDuplicatesCount: 0,
+      affectedSkus: []
+    };
+  },
+
   async seedDemoData() {
-    const demoItems = [
-      // 1-škatelni artikli (popolni)
-      { 
-        sku: '3725150', 
-        name: 'Garden chair FJELLERUP', 
-        category: 'Vrtno pohištvo', 
-        location: 'Regal V-04', 
-        quantity: 24, 
-        minQuantity: 8, 
-        unit: 'kos', 
-        boxInfo: 'Box 1/1', 
-        boxTotal: 1,
-        boxes: { 1: { count: 24, location: 'Regal V-04' } },
-        piecesPerBox: 4, 
-        notes: 'W56 x H93 x D66 cm, Natural' 
-      },
-      { 
-        sku: '3651003', 
-        name: 'Mirror SANDAGER 3 pcs/pk oak', 
-        category: 'Ogledala & Dekor', 
-        location: 'Regal O-02', 
-        quantity: 15, 
-        minQuantity: 6, 
-        unit: 'kos', 
-        boxInfo: 'Box 1/1', 
-        boxTotal: 1,
-        boxes: { 1: { count: 15, location: 'Regal O-02' } },
-        piecesPerBox: 1, 
-        notes: 'Ø45/55/70 oak (komplet 3 ogledal)' 
-      },
-      { 
-        sku: '3690565', 
-        name: 'Mirror BALSLEV 35x127 w.oak', 
-        category: 'Ogledala & Dekor', 
-        location: 'Regal O-04', 
-        quantity: 16, 
-        minQuantity: 8, 
-        unit: 'kos', 
-        boxInfo: 'Box 1/1', 
-        boxTotal: 1,
-        boxes: { 1: { count: 16, location: 'Regal O-04' } },
-        piecesPerBox: 4, 
-        notes: 'W35xH127xD2 cm, Warm oak' 
-      },
-      { 
-        sku: '3690514', 
-        name: 'Dining chair ADSLEV beige/n.oak', 
-        category: 'Stoli & Mize', 
-        location: 'Regal S-02', 
-        quantity: 12, 
-        minQuantity: 4, 
-        unit: 'kos', 
-        boxInfo: 'Box 1/1', 
-        boxTotal: 1,
-        boxes: { 1: { count: 12, location: 'Regal S-02' } },
-        piecesPerBox: 2, 
-        notes: 'W59 x H82 x D59 cm' 
-      },
-
-      // Več-škatelni artikli: POPOLNI KOMPLETI
+    const demoArticles = [
       {
-        sku: '3600520',
-        name: 'Jedilna miza SKOVLUNDE 90x200 hrast',
-        category: 'Stoli & Mize',
-        location: 'Regal M-02 / M-03',
-        quantity: 8,
+        sku: '3600123',
+        name: 'Vrtni stol MELLBY jeklo/tekstilen črna',
+        category: 'Vrtno pohištvo',
+        boxTotal: 1,
+        minQuantity: 4,
+        unit: 'kos',
+        shelf: 'Regal A-01',
+        count: 12,
+        notes: 'Enodelni stol, zložljiv'
+      },
+      {
+        sku: '3600456',
+        name: 'Vrtna miza SANDVIG Š82xD140 siva',
+        category: 'Vrtno pohištvo',
+        boxTotal: 1,
         minQuantity: 2,
-        unit: 'garnitura',
-        boxInfo: 'Box 1/2',
-        boxTotal: 2,
-        boxes: {
-          1: { count: 8, location: 'Regal M-02 (plošča)' },
-          2: { count: 8, location: 'Regal M-03 (noge & okovje)' }
-        },
-        piecesPerBox: 1,
-        notes: 'Garnitura iz 2 škatel'
+        unit: 'kos',
+        shelf: 'Regal A-03',
+        count: 1,
+        notes: 'Zadnji kos na zalogi'
       },
       {
-        sku: '3681401',
+        sku: '3651003',
         name: 'Garderobna omara TARP 3 vrata bela',
-        category: 'Omarice & Mizice',
-        location: 'Regal G-01 / G-02 / G-03',
-        quantity: 3,
-        minQuantity: 2,
-        unit: 'garnitura',
-        boxInfo: 'Box 1/3',
+        category: 'Pohištvo',
         boxTotal: 3,
-        boxes: {
-          1: { count: 3, location: 'Regal G-01 (stranice)' },
-          2: { count: 3, location: 'Regal G-02 (police)' },
-          3: { count: 3, location: 'Regal G-03 (vrata z ogledalom)' }
-        },
-        piecesPerBox: 1,
-        notes: 'Velika omara 150x200 cm, 3 škatle'
+        minQuantity: 1,
+        unit: 'garnitura',
+        notes: 'Velika omara 150x200 cm, 3 škatle',
+        boxes: [
+          { boxNum: 1, shelf: 'Regal G-01 (ogrodje)', count: 3 },
+          { boxNum: 2, shelf: 'Regal G-02 (police)', count: 3 },
+          { boxNum: 3, shelf: 'Regal G-03 (vrata z ogledalom)', count: 3 }
+        ]
       },
-
-      // Več-škatelni artikli: NEPOPOLNE ŠKATLE (samo en del škatel / manjkajo deli)
       {
         sku: '3698710',
         name: 'Posteljni okvir ABILD 160x200 hrast',
         category: 'Vzmetnice & Nadvložki',
-        location: 'Regal P-01 / P-02',
-        quantity: 2,
+        boxTotal: 2,
         minQuantity: 2,
         unit: 'garnitura',
-        boxInfo: 'Box 1/2',
-        boxTotal: 2,
-        boxes: {
-          1: { count: 5, location: 'Regal P-01 (vzglavje)' },
-          2: { count: 2, location: 'Regal P-02 (okvir & stranice)' }
-        },
-        piecesPerBox: 1,
-        notes: '⚠️ 2 cela kompleta, 3x Box 1/2 je viška (manjka 3x Box 2/2)'
+        notes: '⚠️ 2 cela kompleta, 3x Box 1/2 je viška (manjka 3x Box 2/2)',
+        boxes: [
+          { boxNum: 1, shelf: 'Regal P-01 (vzglavje)', count: 5 },
+          { boxNum: 2, shelf: 'Regal P-02 (okvir & stranice)', count: 2 }
+        ]
       },
-      {
-        sku: '3620095',
-        name: 'Pisarniška miza TAMHOLT bela/hrast',
-        category: 'Omarice & Mizice',
-        location: 'Regal D-05',
-        quantity: 0,
-        minQuantity: 2,
-        unit: 'garnitura',
-        boxInfo: 'Box 1/2',
-        boxTotal: 2,
-        boxes: {
-          1: { count: 4, location: 'Regal D-05 (mizna plošča)' },
-          2: { count: 0, location: 'Ni na zalogi' }
-        },
-        piecesPerBox: 1,
-        notes: '⚠️ 0 celih kompletov! Na zalogi 4x Box 1/2, manjka 4x Box 2/2'
-      },
-
-      // Artikli s skeniranega računa kupca (s prikazom delitve škatel na več regalov)
       {
         sku: '3618930',
         name: 'Predalnik LIMFJORDEN 4 predali bela',
-        category: 'Omarice & Mizice',
-        location: 'Regal P-04 / Regal P-09 / Regal P-05',
-        quantity: 6,
+        category: 'Pohištvo',
+        boxTotal: 2,
         minQuantity: 2,
         unit: 'garnitura',
-        boxInfo: 'Box 1/2',
-        boxTotal: 2,
-        boxes: {
-          1: {
-            count: 6,
-            location: 'Regal P-04 (4 kos) / Regal P-09 (2 kos)',
-            locations: [
-              { name: 'Regal P-04 (ogrodje & stranice)', count: 4, isPrimary: true },
-              { name: 'Regal P-09 (preliv/rezerva)', count: 2, isPrimary: false }
-            ]
-          },
-          2: {
-            count: 6,
-            location: 'Regal P-05 (predali & vodila)',
-            locations: [
-              { name: 'Regal P-05 (predali & vodila)', count: 6, isPrimary: true }
-            ]
-          }
-        },
-        piecesPerBox: 1,
-        notes: 'JYSK Predalnik LIMFJORDEN (Škatla 1/2 razdeljena na P-04 in P-09 rezervo)'
+        notes: 'JYSK Predalnik LIMFJORDEN (Škatla 1/2 razdeljena na P-04 in P-09 rezervo)',
+        boxes: [
+          { boxNum: 1, shelf: 'Regal P-04 (ogrodje)', count: 4 },
+          { boxNum: 1, shelf: 'Regal P-09 (rezerva)', count: 2 },
+          { boxNum: 2, shelf: 'Regal P-05 (predali)', count: 6 }
+        ]
       },
       {
         sku: '3670619',
         name: 'DIVERSES',
         category: 'Splošno',
-        location: 'Regal D-01',
-        quantity: 8,
+        boxTotal: 1,
         minQuantity: 2,
         unit: 'kos',
-        boxInfo: 'Box 1/1',
-        boxTotal: 1,
-        boxes: {
-          1: {
-            count: 8,
-            location: 'Regal D-01 (polica 2)',
-            locations: [
-              { name: 'Regal D-01 (polica 2)', count: 8, isPrimary: true }
-            ]
-          }
-        },
-        piecesPerBox: 1,
-        notes: 'Razna oprema DIVERSES'
+        shelf: 'Regal D-01',
+        count: 8,
+        notes: 'Pomožni artikel za račune'
       }
     ];
 
-    for (const item of demoItems) {
-      await this.addItem(item);
-    }
-    return true;
-  },
-
-  /**
-   * Preveri in po potrebi zagotovi obstoj artiklov z računa, da se takoj prikažejo pravilni regali
-   */
-  async ensureReceiptDemoItems() {
-    const limfjorden = {
-      sku: '3618930',
-      name: 'Predalnik LIMFJORDEN 4 predali bela',
-      category: 'Omarice & Mizice',
-      location: 'Regal P-04 / Regal P-09 / Regal P-05',
-      quantity: 6,
-      minQuantity: 2,
-      unit: 'garnitura',
-      boxInfo: 'Box 1/2',
-      boxTotal: 2,
-      boxes: {
-        1: {
-          count: 6,
-          location: 'Regal P-04 (4 kos) / Regal P-09 (2 kos)',
-          locations: [
-            { name: 'Regal P-04 (ogrodje & stranice)', count: 4, isPrimary: true },
-            { name: 'Regal P-09 (preliv/rezerva)', count: 2, isPrimary: false }
-          ]
-        },
-        2: {
-          count: 6,
-          location: 'Regal P-05 (predali & vodila)',
-          locations: [
-            { name: 'Regal P-05 (predali & vodila)', count: 6, isPrimary: true }
-          ]
-        }
-      },
-      piecesPerBox: 1,
-      notes: 'JYSK Predalnik LIMFJORDEN (Škatla 1/2 razdeljena na P-04 in P-09 rezervo)'
-    };
-
-    const diverses = {
-      sku: '3670619',
-      name: 'DIVERSES',
-      category: 'Splošno',
-      location: 'Regal D-01',
-      quantity: 8,
-      minQuantity: 2,
-      unit: 'kos',
-      boxInfo: 'Box 1/1',
-      boxTotal: 1,
-      boxes: {
-        1: {
-          count: 8,
-          location: 'Regal D-01 (polica 2)',
-          locations: [
-            { name: 'Regal D-01 (polica 2)', count: 8, isPrimary: true }
-          ]
-        }
-      },
-      piecesPerBox: 1,
-      notes: 'Razna oprema DIVERSES'
-    };
-
-    const existing1 = await this.getItemBySKU(limfjorden.sku);
-    if (!existing1) {
-      await this.addItem(limfjorden);
-    } else if (!existing1.boxes[1]?.locations || existing1.boxes[1].locations.length < 2) {
-      existing1.boxes = limfjorden.boxes;
-      existing1.location = limfjorden.location;
-      await this.updateItem(existing1);
-    }
-
-    const existing2 = await this.getItemBySKU(diverses.sku);
-    if (!existing2) {
-      await this.addItem(diverses);
-    }
-  },
-
-  /**
-   * Uveljavi rezultate inventurnega popisa v IndexedDB (posodobi zalogo postavk in zabeleži v dnevnik logs)
-   * @param {Array} auditEntries - Seznam { itemId, boxNum, locName, bookQty, countedQty, isCounted }
-   */
-  async applyAuditResults(auditEntries) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
       const logStore = tx.objectStore('logs');
 
-      const getReq = itemStore.getAll();
-      getReq.onsuccess = () => {
-        const allItems = getReq.result || [];
-        const itemMap = new Map();
-        allItems.forEach(i => itemMap.set(i.id, normalizeItemBoxes(i)));
+      demoArticles.forEach(item => {
+        artStore.put({
+          sku: item.sku,
+          name: item.name,
+          category: item.category,
+          boxTotal: item.boxTotal,
+          minQuantity: item.minQuantity,
+          unit: item.unit,
+          notes: item.notes,
+          lastUpdated: new Date().toISOString()
+        });
 
-        let modifiedItemsCount = 0;
-        let totalAdjustments = 0;
-        const modifiedItemIds = new Set();
-
-        for (const entry of auditEntries) {
-          if (!entry.isCounted) continue;
-          const book = Number(entry.bookQty) || 0;
-          const counted = Math.max(0, Number(entry.countedQty) || 0);
-          const diff = counted - book;
-          if (diff === 0) continue;
-
-          const item = itemMap.get(Number(entry.itemId));
-          if (!item) continue;
-
-          const bNum = Number(entry.boxNum) || 1;
-          if (!item.boxes[bNum]) continue;
-
-          const bObj = item.boxes[bNum];
-          const locs = bObj.locations || [];
-          const cleanLoc = String(entry.locName || '').trim().toLowerCase();
-          const targetLoc = locs.find(l => l.name.trim().toLowerCase() === cleanLoc);
-
-          if (targetLoc) {
-            targetLoc.count = counted;
-          } else if (locs.length > 0) {
-            locs[0].count = counted;
-          } else {
-            locs.push({
-              name: entry.locName || item.location || 'Brez lokacije',
-              count: counted,
-              isPrimary: true
+        if (item.boxes) {
+          item.boxes.forEach((b, idx) => {
+            stockStore.put({
+              id: `${item.sku}_b${b.boxNum}_${b.shelf}`,
+              sku: item.sku,
+              boxNum: b.boxNum,
+              shelf: b.shelf,
+              count: b.count,
+              isPrimary: idx === 0,
+              lastUpdated: new Date().toISOString()
             });
-          }
-
-          // Posodobi seštevek škatle in lokacije
-          item.boxes[bNum] = normalizeBoxLocations(bObj, entry.locName || item.location || 'Brez lokacije');
-
-          // Preračun celih kompletov
-          const stats = this.getBoxStats(item);
-          item.quantity = stats.completeSets;
-          item.lastUpdated = new Date().toISOString();
-
-          logStore.add({
-            itemId: item.id,
-            sku: item.sku,
-            itemName: item.name,
-            changeType: 'audit',
-            changeAmount: diff,
-            resultingQty: item.quantity,
-            note: `Inventura: Škatla ${bNum}/${item.boxTotal} (${entry.locName || 'Privzeta lokacija'}) knjižno ${book} -> prešteto ${counted} (razlika: ${diff > 0 ? '+' : ''}${diff})`,
-            timestamp: new Date().toISOString()
           });
-
-          modifiedItemIds.add(item.id);
-          totalAdjustments++;
+        } else {
+          stockStore.put({
+            id: `${item.sku}_b1_${item.shelf}`,
+            sku: item.sku,
+            boxNum: 1,
+            shelf: item.shelf,
+            count: item.count,
+            isPrimary: true,
+            lastUpdated: new Date().toISOString()
+          });
         }
 
-        // Shranimo posodobljene artikle
-        modifiedItemIds.forEach(id => {
-          const item = itemMap.get(id);
-          if (item) {
-            itemStore.put(item);
-            modifiedItemsCount++;
-          }
+        logStore.add({
+          sku: item.sku,
+          itemName: item.name,
+          changeType: 'create',
+          changeAmount: item.count || 0,
+          resultingQty: item.count || 0,
+          note: `Začetni vzorčni vnos`,
+          timestamp: new Date().toISOString()
         });
+      });
 
-        tx.oncomplete = () => resolve({
-          success: true,
-          modifiedItemsCount,
-          totalAdjustments
-        });
-        tx.onerror = () => reject(tx.error);
-      };
-      getReq.onerror = () => reject(getReq.error);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
     });
   },
 
+  async ensureReceiptDemoItems() {
+    const requiredSKUs = ['3618930', '3670619'];
+    for (const sku of requiredSKUs) {
+      const item = await this.getItemBySKU(sku);
+      if (!item) {
+        await this.seedDemoData();
+        break;
+      }
+    }
+  },
+
   /**
-   * Pametno združi prejeto sinhronizacijsko pošiljko (Quick Share / Nearby Share)
-   * - Samodejno doda vse nove artikle s policami in škatlami
-   * - Samodejno posodobi obstoječa stanja (vključno z vsemi izvedenimi izdajami)
-   * - Združi dnevnik premikov brez podvajanja
+   * Izvoz celotne baze za varnostno kopijo ali BLE sinhronizacijo
+   */
+  async exportBackup() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readonly');
+      const artReq = tx.objectStore('articles').getAll();
+      const stockReq = tx.objectStore('stock_locations').getAll();
+      const logReq = tx.objectStore('logs').getAll();
+
+      let articles = [], stockLocations = [], logs = [];
+      let ready = 0;
+
+      const finish = async () => {
+        ready++;
+        if (ready < 3) return;
+        const items = await DB.getAllItems();
+        resolve({
+          version: 2,
+          createdAt: new Date().toISOString(),
+          articles,
+          stockLocations,
+          items, // Za nazaj združljivo branje
+          logs
+        });
+      };
+
+      artReq.onsuccess = () => { articles = artReq.result || []; finish(); };
+      artReq.onerror = () => reject(artReq.error);
+
+      stockReq.onsuccess = () => { stockLocations = stockReq.result || []; finish(); };
+      stockReq.onerror = () => reject(stockReq.error);
+
+      logReq.onsuccess = () => { logs = logReq.result || []; finish(); };
+      logReq.onerror = () => reject(logReq.error);
+    });
+  },
+
+  async importBackup(data) {
+    if (!data) throw new Error('Neveljavna datoteka za uvoz.');
+    return this.mergeSyncData(data);
+  },
+
+  /**
+   * Sinhronizacija podatkov med telefoni (BLE ali datoteka)
    */
   async mergeSyncData(syncPayload) {
-    if (!syncPayload || !Array.isArray(syncPayload.items)) {
-      throw new Error('Neveljavna datoteka za sinhronizacijo.');
-    }
+    if (!syncPayload) throw new Error('Neveljavna datoteka za sinhronizacijo.');
 
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(['items', 'logs'], 'readwrite');
-      const itemStore = tx.objectStore('items');
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
       const logStore = tx.objectStore('logs');
 
-      const getItemsReq = itemStore.getAll();
-      const getLogsReq = logStore.getAll();
+      let addedCount = 0;
+      let updatedCount = 0;
+      let decreasedCount = 0;
+      const addedItemNames = [];
 
-      let existingItems = [];
-      let existingLogs = [];
-      let readyCount = 0;
+      const incomingArticles = syncPayload.articles || [];
+      const incomingStocks = syncPayload.stockLocations || [];
+      const incomingItems = syncPayload.items || [];
 
-      const onReady = () => {
-        readyCount++;
-        if (readyCount < 2) return;
+      // Če ima payload stari format items:
+      if (incomingItems.length > 0 && incomingArticles.length === 0) {
+        for (const item of incomingItems) {
+          const sku = String(item.sku || '').trim();
+          if (!sku) continue;
+          const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || 1);
+          incomingArticles.push({
+            sku: sku,
+            name: item.name || `Artikel ${sku}`,
+            category: item.category || 'Splošno',
+            boxTotal: boxTotal,
+            minQuantity: Number(item.minQuantity) || 0,
+            unit: item.unit || (boxTotal > 1 ? 'garnitura' : 'kos'),
+            notes: item.notes || '',
+            lastUpdated: item.lastUpdated || new Date().toISOString()
+          });
 
-        const itemMap = new Map();
-        existingItems.forEach(i => itemMap.set(String(i.sku).trim(), normalizeItemBoxes(i)));
-
-        let addedCount = 0;
-        let updatedCount = 0;
-        let decreasedCount = 0;
-        const addedItemNames = [];
-
-        for (const incoming of syncPayload.items) {
-          if (!incoming || !incoming.sku) continue;
-          const skuKey = String(incoming.sku).trim();
-          const normIncoming = normalizeItemBoxes(incoming);
-
-          if (!itemMap.has(skuKey)) {
-            // Popolnoma nov artikel!
-            delete normIncoming.id;
-            itemStore.add(normIncoming);
-            addedCount++;
-            addedItemNames.push(normIncoming.name || normIncoming.sku);
-          } else {
-            // Obstoječ artikel: posodobimo stanja na policah in škatlah
-            const localItem = itemMap.get(skuKey);
-            const oldQty = localItem.quantity;
-
-            localItem.name = normIncoming.name || localItem.name;
-            localItem.category = normIncoming.category || localItem.category;
-            localItem.boxTotal = normIncoming.boxTotal || localItem.boxTotal;
-            localItem.boxInfo = normIncoming.boxInfo || localItem.boxInfo;
-            localItem.unit = normIncoming.unit || localItem.unit;
-            localItem.notes = normIncoming.notes || localItem.notes;
-            localItem.location = normIncoming.location || localItem.location;
-            localItem.boxes = normIncoming.boxes;
-            localItem.quantity = normIncoming.quantity;
-            localItem.lastUpdated = normIncoming.lastUpdated || new Date().toISOString();
-
-            itemStore.put(localItem);
-            updatedCount++;
-            if (localItem.quantity < oldQty) {
-              decreasedCount++;
+          if (item.boxes) {
+            for (let b = 1; b <= boxTotal; b++) {
+              const bData = item.boxes[b];
+              if (!bData) continue;
+              const locs = bData.locations || [{ name: bData.location || item.location || 'Brez lokacije', count: bData.count || 0, isPrimary: true }];
+              locs.forEach(l => {
+                incomingStocks.push({
+                  id: `${sku}_b${b}_${l.name}`,
+                  sku: sku,
+                  boxNum: b,
+                  shelf: l.name,
+                  count: Number(l.count) || 0,
+                  isPrimary: !!l.isPrimary,
+                  lastUpdated: item.lastUpdated || new Date().toISOString()
+                });
+              });
             }
           }
         }
+      }
 
-        // Združitev zgodovine premikov (dnevnik)
-        const existingTimestamps = new Set(existingLogs.map(l => l.timestamp));
-        let addedLogsCount = 0;
+      for (const art of incomingArticles) {
+        if (!art || !art.sku) continue;
+        artStore.put(art);
+        addedCount++;
+        addedItemNames.push(art.name || art.sku);
+      }
 
-        if (Array.isArray(syncPayload.logs)) {
+      for (const st of incomingStocks) {
+        if (!st || !st.id || !st.sku) continue;
+        stockStore.put(st);
+        updatedCount++;
+      }
+
+      let addedLogsCount = 0;
+      if (Array.isArray(syncPayload.logs)) {
+        const getLogsReq = logStore.getAll();
+        getLogsReq.onsuccess = () => {
+          const existingTimestamps = new Set((getLogsReq.result || []).map(l => l.timestamp));
           for (const incomingLog of syncPayload.logs) {
             if (!incomingLog || !incomingLog.timestamp) continue;
             if (!existingTimestamps.has(incomingLog.timestamp)) {
@@ -1193,32 +1107,20 @@ const DB = {
               addedLogsCount++;
             }
           }
-        }
-
-        tx.oncomplete = () => {
-          resolve({
-            addedCount,
-            updatedCount,
-            decreasedCount,
-            addedLogsCount,
-            addedItemNames,
-            totalIncoming: syncPayload.items.length
-          });
         };
-        tx.onerror = () => reject(tx.error);
-      };
+      }
 
-      getItemsReq.onsuccess = () => {
-        existingItems = getItemsReq.result || [];
-        onReady();
+      tx.oncomplete = () => {
+        resolve({
+          addedCount,
+          updatedCount,
+          decreasedCount,
+          addedLogsCount,
+          addedItemNames,
+          totalIncoming: (incomingArticles.length || incomingItems.length)
+        });
       };
-      getItemsReq.onerror = () => reject(getItemsReq.error);
-
-      getLogsReq.onsuccess = () => {
-        existingLogs = getLogsReq.result || [];
-        onReady();
-      };
-      getLogsReq.onerror = () => reject(getLogsReq.error);
+      tx.onerror = () => reject(tx.error);
     });
   }
 };

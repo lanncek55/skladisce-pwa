@@ -40,17 +40,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 8. Takojšnje prednalaganje nevronskega OCR pospeševalnika v ozadju
   initOCRWorker();
 
-  // 9. Samodejno čiščenje in združevanje morebitnih podvojenih artiklov (Deduplikacija)
-  try {
-    const dedup = await DB.deduplicateItems();
-    if (dedup && dedup.removedDuplicatesCount > 0) {
-      console.log(`✓ Deduplikacija: Združenih ${dedup.mergedGroupsCount} skupin, odstranjenih ${dedup.removedDuplicatesCount} dvojnikov.`);
-    }
-  } catch (err) {
-    console.warn('Deduplikacija ob zagonu:', err);
+  // 9. Naloži podatke iz IndexedDB (če je nova baza sveža in prazna, naloži začetne vzorčne artikle)
+  const initialItems = await DB.getAllItems();
+  if (!initialItems || initialItems.length === 0) {
+    await DB.seedDemoData();
   }
-
-  // 10. Naloži podatke iz IndexedDB
   await refreshInventory();
 });
 
@@ -481,7 +475,6 @@ function setupModals() {
       boxInfo: boxInfoStr,
       boxTotal: boxTotal,
       boxes: boxes,
-      piecesPerBox: Number(document.getElementById('itemPiecesPerBox').value) || 1,
       category: document.getElementById('itemCategory').value,
       location: document.getElementById('itemLocation').value,
       quantity: calculatedCompleteSets,
@@ -567,7 +560,8 @@ window.openEditModal = async function(id) {
   document.getElementById('itemSku').value = item.sku || '';
   document.getElementById('itemName').value = item.name || '';
   document.getElementById('itemBoxInfo').value = item.boxInfo || 'Box 1/1';
-  document.getElementById('itemPiecesPerBox').value = item.piecesPerBox || 1;
+  const boxTotalEl = document.getElementById('itemBoxTotal');
+  if (boxTotalEl) boxTotalEl.value = item.boxTotal || 1;
   document.getElementById('itemCategory').value = item.category || '';
   document.getElementById('itemLocation').value = item.location || '';
   document.getElementById('itemQuantity').value = item.quantity || 0;
@@ -1841,10 +1835,7 @@ function renderBoxResultCard(existingItem) {
 
     <div class="box-badges">
       <span class="box-badge highlight">📦 ${escapeHtml(boxInfo)}</span>
-      <div class="box-badge highlight" style="display:inline-flex; align-items:center; gap: 6px;">
-        <span>🔢 Kosov v škatli:</span>
-        <input type="number" id="boxPiecesPerBoxInput" min="1" value="${piecesPerBox}" style="width: 50px; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 800; text-align: center; border-radius: 6px; padding: 2px 4px; font-size: 0.9rem;" oninput="updatePiecesPerBox(this.value)">
-      </div>
+      ${boxTotal > 1 ? `<span class="box-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">⚠️ Škatla ${boxNum} od ${boxTotal}</span>` : ''}
     </div>
 
     <!-- Vnos / urejanje lokacije za to posamezno škatlo -->
@@ -1873,10 +1864,10 @@ function renderBoxResultCard(existingItem) {
     <!-- Hitra skladiščna dejanja za prevzem in izdajo -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
       <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px;">
-        📥 PREVZEMI (+${totalPcs} kos)
+        📥 PREVZEMI (+${currentMultiplier} škatel)
       </button>
       <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px;">
-        📤 IZDAJ (-${totalPcs} kos)
+        📤 IZDAJ (-${currentMultiplier} škatel)
       </button>
     </div>
 
@@ -1891,36 +1882,24 @@ function renderBoxResultCard(existingItem) {
   `;
 }
 
-window.updatePiecesPerBox = function(val) {
-  const num = Math.max(1, parseInt(val, 10) || 1);
-  if (currentScannedBox) {
-    currentScannedBox.quantityInBox = num;
-  }
-  const totalPcs = num * currentMultiplier;
-  const inBtn = document.getElementById('btnConfirmReceiveBox');
-  const outBtn = document.getElementById('btnConfirmIssueBox');
-  if (inBtn) inBtn.textContent = `📥 PREVZEMI (+${totalPcs} kos)`;
-  if (outBtn) outBtn.textContent = `📤 IZDAJ (-${totalPcs} kos)`;
-};
-
 window.setBoxMultiplier = function(m) {
   currentMultiplier = Number(m) || 1;
-  const pieces = Number(document.getElementById('boxPiecesPerBoxInput')?.value) || Number(currentScannedBox?.quantityInBox) || 1;
-  if (currentScannedBox) currentScannedBox.quantityInBox = pieces;
-  const sku = currentScannedBox?.articleNumber;
-  if (sku) {
-    DB.getItemBySKU(sku).then(item => renderBoxResultCard(item));
-  } else {
-    renderBoxResultCard(null);
-  }
+  const inBtn = document.getElementById('btnConfirmReceiveBox');
+  const outBtn = document.getElementById('btnConfirmIssueBox');
+  if (inBtn) inBtn.textContent = `📥 PREVZEMI (+${currentMultiplier} škatel)`;
+  if (outBtn) outBtn.textContent = `📤 IZDAJ (-${currentMultiplier} škatel)`;
+
+  const btns = document.querySelectorAll('.mult-btn');
+  btns.forEach(b => b.classList.remove('active'));
+  const activeBtn = Array.from(btns).find(b => b.textContent.trim() === `${m}x`);
+  if (activeBtn) activeBtn.classList.add('active');
 };
 
 window.executeBoxStockChange = async function(direction) {
   if (!currentScannedBox) return;
 
   const sku = currentScannedBox.articleNumber;
-  const piecesPerBox = Number(document.getElementById('boxPiecesPerBoxInput')?.value) || Number(currentScannedBox.quantityInBox) || 1;
-  const totalAmount = piecesPerBox * currentMultiplier;
+  const totalAmount = currentMultiplier;
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
   const boxLocation = document.getElementById('boxResultLocationInput')?.value?.trim() || '';
   const boxNum = currentScannedBox.boxCurrent || 1;
@@ -1942,32 +1921,31 @@ window.executeBoxStockChange = async function(direction) {
       sku: sku || 'ART-' + Math.floor(1000 + Math.random() * 9000),
       name: chosenName,
       quantity: 0,
-      minQuantity: 4,
+      minQuantity: 2,
       boxInfo: `Box ${boxNum}/${boxTotal}`,
       boxTotal: boxTotal,
       boxes: boxes,
-      piecesPerBox: piecesPerBox,
       unit: (boxTotal > 1) ? 'garnitura' : 'kos',
       category: 'Splošno',
       location: boxLocation || 'Prevzemno območje'
     });
-    const newId = (typeof res === 'object' && res.id) ? res.id : res;
+    const newId = (typeof res === 'object' && res.sku) ? res.sku : (res.id || res);
     item = await DB.getItemById(newId);
   } else if (item.name !== chosenName) {
     item.name = chosenName;
     await DB.updateItem(item);
   }
 
-  const note = `${currentMultiplier}x škatla (${boxNum}/${boxTotal}), ${piecesPerBox} kos/škatlo`;
+  const note = `${currentMultiplier}x škatla (${boxNum}/${boxTotal})`;
   const delta = (direction === 'in') ? totalAmount : -totalAmount;
 
-  await DB.adjustStock(item.id, delta, note, direction, boxNum, boxLocation);
+  await DB.adjustStock(item.sku, delta, note, direction, boxNum, boxLocation);
   if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
-  showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} kos (${chosenName})` : `📤 Izdano: -${totalAmount} kos (${chosenName})`);
+  showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} škatel (${chosenName})` : `📤 Izdano: -${totalAmount} škatel (${chosenName})`);
 
   // Osveži prikaz
-  const updatedItem = await DB.getItemById(item.id);
+  const updatedItem = await DB.getItemById(item.sku);
   renderBoxResultCard(updatedItem);
   await refreshInventory();
 };
