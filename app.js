@@ -2541,7 +2541,7 @@ async function exportAuditPDF() {
     const contentWidth = pageWidth - (margin * 2); // 186mm
 
     let currentPage = 1;
-    let y = 14;
+    let y = 12;
 
     const activeShelf = auditSession.shelfFilter || 'all';
     const filteredEntries = (activeShelf === 'all')
@@ -2563,101 +2563,114 @@ async function exportAuditPDF() {
       }
     });
 
-    function drawHeader() {
-      // Header pas
-      doc.setFillColor(15, 23, 42); // #0f172a
-      doc.rect(margin, y, contentWidth, 23, 'F');
+    function drawPageHeader(pageNo) {
+      if (pageNo === 1) {
+        // Glavni pas naslova
+        doc.setFillColor(15, 23, 42); // #0f172a
+        doc.rect(margin, y, contentWidth, 22, 'F');
 
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('INVENTURNI ZAPISNIK SKLADISCA', margin + 6, y + 9);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.text('INVENTURNI ZAPISNIK SKLADISCA', margin + 6, y + 8.5);
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(148, 163, 184);
-      const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
-      const shelfText = (activeShelf === 'all') ? 'Vsi regali' : activeShelf;
-      doc.text(`Uradni popis zaloge | Datum: ${nowStr} | Lokacija: ${shelfText}`, margin + 6, y + 16);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.2);
+        doc.setTextColor(148, 163, 184);
+        const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
+        const shelfText = (activeShelf === 'all') ? 'Vsi regali' : activeShelf;
+        doc.text(`Uradni popis zaloge | Datum: ${nowStr} | Lokacija: ${shelfText}`, margin + 6, y + 16);
 
-      y += 27;
+        y += 25;
 
-      // Povzetek v glavi
-      doc.setFillColor(241, 245, 249);
-      doc.rect(margin, y, contentWidth, 10, 'F');
-      doc.setDrawColor(203, 213, 225);
-      doc.rect(margin, y, contentWidth, 10, 'S');
+        // Povzetek v glavi (samo 1. stran)
+        doc.setFillColor(241, 245, 249);
+        doc.rect(margin, y, contentWidth, 10, 'F');
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(margin, y, contentWidth, 10, 'S');
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.6);
-      doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(30, 41, 59);
 
-      const colW = contentWidth / 5;
-      doc.text(`POZICIJ: ${totalPositions}`, margin + 4, y + 6.5);
-      doc.text(`PRESTETO: ${countedPositions}/${totalPositions}`, margin + colW + 2, y + 6.5);
-      doc.text(`USKLAJENO: ${matchPositions}`, margin + (colW * 2) + 2, y + 6.5);
-      doc.setTextColor(185, 28, 28);
-      doc.text(`MANJKO: -${totalDeficit} kos`, margin + (colW * 3) + 2, y + 6.5);
-      doc.setTextColor(217, 119, 6);
-      doc.text(`VISEK: +${totalSurplus} kos`, margin + (colW * 4) + 2, y + 6.5);
+        const colW = contentWidth / 5;
+        doc.text(`POZICIJ: ${totalPositions}`, margin + 4, y + 6.5);
+        doc.text(`PRESTETO: ${countedPositions}/${totalPositions}`, margin + colW + 2, y + 6.5);
+        doc.text(`USKLAJENO: ${matchPositions}`, margin + (colW * 2) + 2, y + 6.5);
+        doc.setTextColor(185, 28, 28);
+        doc.text(`MANJKO: -${totalDeficit} kos`, margin + (colW * 3) + 2, y + 6.5);
+        doc.setTextColor(217, 119, 6);
+        doc.text(`VISEK: +${totalSurplus} kos`, margin + (colW * 4) + 2, y + 6.5);
 
-      y += 14;
+        y += 13;
+      } else {
+        // Kompaktna glava za nadaljnje strani
+        doc.setFillColor(15, 23, 42);
+        doc.rect(margin, y, contentWidth, 10, 'F');
 
-      // Glava tabele
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.text('INVENTURNI ZAPISNIK SKLADISCA (Nadaljevanje)', margin + 6, y + 6.5);
+
+        y += 12;
+      }
+
+      // Glava tabele z jasnimi, ločenimi stolpci
       doc.setFillColor(30, 41, 59);
       doc.rect(margin, y, contentWidth, 8, 'F');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(7.6);
       doc.setTextColor(255, 255, 255);
 
       doc.text('CRTNA KODA & SIFRA', margin + 3, y + 5.5);
-      doc.text('NAZIV ARTIKLA', margin + 46, y + 5.5);
-      doc.text('SKATLA', margin + 104, y + 5.5);
-      doc.text('REGAL / LOKACIJA', margin + 120, y + 5.5);
-      doc.text('KNJIZNO', margin + 152, y + 5.5);
-      doc.text('PRESTETO', margin + 167, y + 5.5);
-      doc.text('RAZLIKA', margin + 184, y + 5.5, { align: 'right' });
+      doc.text('NAZIV ARTIKLA', margin + 42, y + 5.5);
+      doc.text('SKATLA', margin + 94, y + 5.5);
+      doc.text('REGAL / LOKACIJA', margin + 110, y + 5.5);
+      doc.text('KNJIZNO', margin + 144, y + 5.5);
+      doc.text('PRESTETO', margin + 158, y + 5.5);
+      doc.text('RAZLIKA', margin + 172, y + 5.5);
 
-      y += 9;
+      y += 8.5;
     }
 
     function drawFooter(pageNo) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Inventurni zapisnik - Stran ${pageNo}`, margin, pageHeight - 8);
+      doc.text(`Skladisce PWA - Inventurni zapisnik - Stran ${pageNo}`, margin, pageHeight - 6);
     }
 
-    drawHeader();
+    drawPageHeader(1);
 
     let rowIndex = 0;
     for (const entry of filteredEntries) {
       const rowHeight = 15;
-      if (y + rowHeight > pageHeight - 28) {
+      if (y + rowHeight > pageHeight - 22) {
         drawFooter(currentPage);
         doc.addPage();
         currentPage++;
-        y = 14;
-        drawHeader();
+        y = 12;
+        drawPageHeader(currentPage);
       }
 
       const isDiff = entry.isCounted && (entry.countedQty !== entry.bookQty);
       if (isDiff) {
         doc.setFillColor(254, 242, 242);
-        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+        doc.rect(margin, y - 0.5, contentWidth, rowHeight, 'F');
       } else if (rowIndex % 2 === 1) {
         doc.setFillColor(248, 250, 252);
-        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+        doc.rect(margin, y - 0.5, contentWidth, rowHeight, 'F');
       }
 
       doc.setDrawColor(226, 232, 240);
-      doc.line(margin, y + rowHeight - 1, margin + contentWidth, y + rowHeight - 1);
+      doc.line(margin, y + rowHeight - 0.5, margin + contentWidth, y + rowHeight - 0.5);
 
-      // Črtna koda
+      // 1. Črtna koda
       const barcodeData = generateBarcodeDataUrl(entry.sku);
       if (barcodeData) {
-        doc.addImage(barcodeData, 'PNG', margin + 2, y, 38, 12);
+        doc.addImage(barcodeData, 'PNG', margin + 2, y + 0.5, 36, 12);
       } else {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
@@ -2665,55 +2678,58 @@ async function exportAuditPDF() {
         doc.text(String(entry.sku), margin + 3, y + 7);
       }
 
-      // Naziv
+      // 2. Naziv artikla (z omejitvijo širine)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(7.8);
       doc.setTextColor(15, 23, 42);
       const cleanName = (entry.name || '').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
-      doc.text(cleanName.substring(0, 32), margin + 46, y + 6);
+      const splitName = doc.splitTextToSize(cleanName, 49);
+      doc.text(splitName, margin + 42, y + 5);
 
-      // Škatla
+      // 3. Škatla
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(`${entry.boxNum}/${entry.boxTotal}`, margin + 104, y + 6);
+      doc.text(`${entry.boxNum}/${entry.boxTotal}`, margin + 95, y + 6);
 
-      // Regal / Lokacija
+      // 4. Regal / Lokacija (z omejitvijo širine)
       const cleanLoc = (entry.locName || 'Brez lokacije').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
-      doc.text(cleanLoc.substring(0, 18), margin + 120, y + 6);
+      const splitLoc = doc.splitTextToSize(cleanLoc, 31);
+      doc.text(splitLoc, margin + 110, y + 5);
 
-      // Knjižno
+      // 5. Knjižno
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text(`${entry.bookQty}`, margin + 154, y + 6);
+      doc.text(`${entry.bookQty}`, margin + 146, y + 6);
 
-      // Prešteto
+      // 6. Prešteto
       doc.setFont('helvetica', 'bold');
       if (!entry.isCounted) {
         doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 169, y + 6);
+        doc.text('-', margin + 160, y + 6);
       } else {
         doc.setTextColor(15, 23, 42);
-        doc.text(`${entry.countedQty}`, margin + 169, y + 6);
+        doc.text(`${entry.countedQty}`, margin + 160, y + 6);
       }
 
-      // Razlika
+      // 7. Razlika
+      doc.setFontSize(7.6);
       if (!entry.isCounted) {
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(148, 163, 184);
-        doc.text('Nepresteto', margin + 184, y + 6, { align: 'right' });
+        doc.text('Neprest.', margin + 172, y + 6);
       } else {
         const diff = entry.countedQty - entry.bookQty;
         if (diff === 0) {
           doc.setTextColor(16, 185, 129);
-          doc.text('0', margin + 184, y + 6, { align: 'right' });
+          doc.text('0 (Uskl.)', margin + 172, y + 6);
         } else if (diff < 0) {
           doc.setTextColor(220, 38, 38);
-          doc.text(`${diff}`, margin + 184, y + 6, { align: 'right' });
+          doc.text(`${diff} kos`, margin + 172, y + 6);
         } else {
           doc.setTextColor(217, 119, 6);
-          doc.text(`+${diff}`, margin + 184, y + 6, { align: 'right' });
+          doc.text(`+${diff} kos`, margin + 172, y + 6);
         }
       }
 
@@ -2722,39 +2738,40 @@ async function exportAuditPDF() {
     }
 
     // Podpisna komisija na dnu
-    if (y + 35 > pageHeight - 16) {
+    if (y + 32 > pageHeight - 16) {
       drawFooter(currentPage);
       doc.addPage();
       currentPage++;
-      y = 20;
+      y = 16;
+      drawPageHeader(currentPage);
     } else {
-      y += 8;
+      y += 6;
     }
 
     doc.setFillColor(248, 250, 252);
-    doc.rect(margin, y, contentWidth, 24, 'F');
+    doc.rect(margin, y, contentWidth, 22, 'F');
     doc.setDrawColor(203, 213, 225);
-    doc.rect(margin, y, contentWidth, 24, 'S');
+    doc.rect(margin, y, contentWidth, 22, 'S');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(7.8);
     doc.setTextColor(30, 41, 59);
-    doc.text('POTRDITEV INVENTURNE KOMISIJE:', margin + 4, y + 5.5);
+    doc.text('POTRDITEV INVENTURNE KOMISIJE:', margin + 4, y + 5);
 
     const sigW = contentWidth / 3;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.2);
     doc.setTextColor(100, 116, 139);
 
-    doc.text('Vodja komisije: ____________________', margin + 4, y + 17);
-    doc.text('Clan komisije: ____________________', margin + sigW + 4, y + 17);
-    doc.text('Vodja skladisca: ____________________', margin + (sigW * 2) + 4, y + 17);
+    doc.text('Vodja komisije: ____________________', margin + 4, y + 15);
+    doc.text('Clan komisije: ____________________', margin + sigW + 4, y + 15);
+    doc.text('Vodja skladisca: ____________________', margin + (sigW * 2) + 4, y + 15);
 
     drawFooter(currentPage);
 
     const fileName = `Inventurni_zapisnik_${getDateStamp()}.pdf`;
     downloadFile(doc.output('blob'), fileName, 'application/pdf');
-    showToast('Inventurni zapisnik PDF uspesno prenesen!');
+    showToast('Inventurni zapisnik PDF uspešno prenesen!');
   } catch (err) {
     console.error('Napaka pri generiranju inventurnega PDF:', err);
     showToast('Napaka pri PDF: ' + err.message);
@@ -3041,8 +3058,9 @@ async function exportCompleteSetsPDF() {
       doc.setTextColor(30, 41, 59);
       let locY = y + 4.5;
       boxLines.forEach(line => {
-        doc.text(line, margin + 115, locY);
-        locY += 4.2;
+        const splitLine = doc.splitTextToSize(line, 41);
+        doc.text(splitLine, margin + 115, locY);
+        locY += splitLine.length * 4.0;
       });
 
       // 4. Kolicina
@@ -3119,11 +3137,11 @@ async function exportIncompleteSetsPDF() {
 
     const pageWidth = 210;
     const pageHeight = 297;
-    const margin = 14;
-    const contentWidth = pageWidth - (margin * 2);
+    const margin = 12;
+    const contentWidth = pageWidth - (margin * 2); // 186mm
 
     let currentPage = 1;
-    let y = 16;
+    let y = 14;
 
     function drawHeader() {
       // Header pas (Amber barva)
@@ -3133,39 +3151,39 @@ async function exportIncompleteSetsPDF() {
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(13);
-      doc.text('POROCILO: NEPOPOLNE SKATLE IN MANJKAJOCI DELI', margin + 6, y + 9);
+      doc.text('POROCILO: NEPOPOLNE SKATLE IN MANJKAJOCI DELI', margin + 6, y + 8.5);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8.2);
       doc.setTextColor(254, 243, 199);
       const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
       doc.text(`Artikli z manjkajocimi skatlami za sestavo celotnega kompleta | Datum: ${nowStr}`, margin + 6, y + 16);
 
       y += 26;
 
-      // Tabela
+      // Glava tabele z jasnimi razmiki
       doc.setFillColor(254, 243, 199);
       doc.rect(margin, y, contentWidth, 8, 'F');
       doc.setDrawColor(245, 158, 11);
       doc.rect(margin, y, contentWidth, 8, 'S');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setTextColor(146, 64, 14);
 
       doc.text('CRTNA KODA & SIFRA', margin + 3, y + 5.5);
-      doc.text('IME ARTIKLA', margin + 50, y + 5.5);
-      doc.text('STANJE SKATEL & LOKACIJE', margin + 105, y + 5.5);
-      doc.text('MANJKA / STANJE', margin + 150, y + 5.5);
+      doc.text('IME ARTIKLA', margin + 44, y + 5.5);
+      doc.text('STANJE SKATEL & LOKACIJE', margin + 95, y + 5.5);
+      doc.text('MANJKA / STANJE', margin + 148, y + 5.5);
 
-      y += 9;
+      y += 8.5;
     }
 
     function drawFooter(pageNo) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 8);
+      doc.text(`Skladisce PWA - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 6);
     }
 
     drawHeader();
@@ -3178,67 +3196,87 @@ async function exportIncompleteSetsPDF() {
       const boxLines = stats.breakdown.map(b => 
         `Skatla ${b.boxNum}/${stats.boxTotal}: ${b.count} kos (${b.location})`
       );
-      const rowHeight = Math.max(20, 8 + (boxLines.length * 5));
 
-      if (y + rowHeight > pageHeight - 16) {
+      // 2. Ime artikla (priprava vrstic za preračun višine)
+      const cleanName = (item.name || '').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
+      const splitName = doc.splitTextToSize(cleanName, 48);
+
+      // 3. Stanje škatel (ovite vrstice)
+      const wrappedBoxLines = [];
+      boxLines.forEach(line => {
+        const cleanLine = line.replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
+        const splitBox = doc.splitTextToSize(cleanLine, 50);
+        splitBox.forEach(s => wrappedBoxLines.push(s));
+      });
+
+      // 4. Manjka / Stanje
+      const cleanMissing = (stats.missingSummary || 'Nepopolno').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
+      const splitMissing = doc.splitTextToSize(cleanMissing, 35);
+
+      // Dinamična višina vrstice, da se besedilo nikoli ne seka ali reže
+      const nameLinesCount = splitName.length + 1;
+      const boxLinesCount = wrappedBoxLines.length;
+      const missingLinesCount = splitMissing.length + 1;
+      const maxContentLines = Math.max(nameLinesCount, boxLinesCount, missingLinesCount, 3);
+      const rowHeight = Math.max(18, 6 + (maxContentLines * 4.2));
+
+      if (y + rowHeight > pageHeight - 20) {
         drawFooter(currentPage);
         doc.addPage();
         currentPage++;
-        y = 16;
+        y = 14;
         drawHeader();
       }
 
       if (rowIndex % 2 === 1) {
         doc.setFillColor(255, 251, 235);
-        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+        doc.rect(margin, y - 0.5, contentWidth, rowHeight, 'F');
       }
       doc.setDrawColor(253, 230, 138);
-      doc.line(margin, y + rowHeight - 1, margin + contentWidth, y + rowHeight - 1);
+      doc.line(margin, y + rowHeight - 0.5, margin + contentWidth, y + rowHeight - 0.5);
 
       // 1. Crtna koda & Sifra
       const barcodeData = generateBarcodeDataUrl(item.sku);
       if (barcodeData) {
-        doc.addImage(barcodeData, 'PNG', margin + 2, y + 1, 42, 13);
+        doc.addImage(barcodeData, 'PNG', margin + 2, y + 1, 38, 12);
       } else {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(8.5);
         doc.setTextColor(15, 23, 42);
         doc.text(String(item.sku), margin + 4, y + 8);
       }
 
       // 2. Ime artikla
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      doc.setFontSize(8.2);
       doc.setTextColor(15, 23, 42);
-      const splitName = doc.splitTextToSize(item.name, 52);
-      doc.text(splitName, margin + 50, y + 4.5);
+      doc.text(splitName, margin + 44, y + 4.5);
 
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.2);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${item.category || 'Splosno'} | ${stats.boxTotal}-delni`, margin + 44, y + 4.5 + (splitName.length * 3.8));
+
+      // 3. Stanje skatel & lokacije (strogo omejeno na širino 50mm, brez prekrivanja!)
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`${item.category || 'Splosno'} | ${stats.boxTotal}-delni`, margin + 50, y + 4.5 + (splitName.length * 4));
-
-      // 3. Stanje skatel & lokacije
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.8);
       doc.setTextColor(30, 41, 59);
       let locY = y + 4.5;
-      boxLines.forEach(line => {
-        doc.text(line, margin + 105, locY);
-        locY += 4.5;
+      wrappedBoxLines.forEach(line => {
+        doc.text(line, margin + 95, locY);
+        locY += 4.0;
       });
 
-      // 4. Manjka / Stanje
+      // 4. Manjka / Stanje (pri margin + 148, ločeno od stolpca 3)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(7.8);
       doc.setTextColor(217, 119, 6);
-      const splitMissing = doc.splitTextToSize(stats.missingSummary || 'Nepopolno', 30);
-      doc.text(splitMissing, margin + 150, y + 4.5);
+      doc.text(splitMissing, margin + 148, y + 4.5);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7.2);
       doc.setTextColor(71, 85, 105);
-      doc.text(`Celih: ${stats.completeSets} kpl`, margin + 150, y + 5.5 + (splitMissing.length * 4));
+      doc.text(`Celih: ${stats.completeSets} kpl`, margin + 148, y + 5.5 + (splitMissing.length * 3.8));
 
       y += rowHeight;
       rowIndex++;
@@ -3248,7 +3286,8 @@ async function exportIncompleteSetsPDF() {
       drawFooter(currentPage);
       doc.addPage();
       currentPage++;
-      y = 16;
+      y = 14;
+      drawHeader();
     }
 
     y += 4;
@@ -3258,7 +3297,7 @@ async function exportIncompleteSetsPDF() {
     doc.rect(margin, y, contentWidth, 12, 'S');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(146, 64, 14);
     doc.text(`OPOZORILO: ${items.length} artiklov ima nepopolne skatle in potrebuje dopolnitev.`, margin + 6, y + 7.5);
 
