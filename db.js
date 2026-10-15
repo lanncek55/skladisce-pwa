@@ -55,6 +55,74 @@ function parseBoxInfo(boxInfo) {
   return { boxCurrent: 1, boxTotal: 1 };
 }
 
+/**
+ * Normalizira lokacije posamezne škatle s podporo za več regalov (primarni + rezerva/preliv)
+ */
+function normalizeBoxLocations(bData, fallbackLoc = 'Brez lokacije') {
+  if (!bData) {
+    return {
+      count: 0,
+      location: fallbackLoc,
+      locations: [{ name: fallbackLoc, count: 0, isPrimary: true }]
+    };
+  }
+
+  let locations = [];
+  if (Array.isArray(bData.locations) && bData.locations.length > 0) {
+    locations = bData.locations.map((loc, idx) => ({
+      name: String(loc.name || loc.location || fallbackLoc).trim(),
+      count: Math.max(0, Number(loc.count) || 0),
+      isPrimary: (idx === 0)
+    }));
+  } else {
+    const rawLoc = String(bData.location || fallbackLoc).trim();
+    // Če niz vsebuje npr. "Regal P-04 (4 kos) / Regal P-09 (2 kos)"
+    const parts = rawLoc.split(/\s*[\/,+]\s*/).filter(Boolean);
+    if (parts.length > 1 && parts.some(p => /\(\s*\d+\s*(?:kos|kom)?\s*\)/i.test(p))) {
+      let parsedSum = 0;
+      parts.forEach((p, idx) => {
+        const countMatch = p.match(/\(\s*(\d+)\s*(?:kos|kom)?\s*\)/i);
+        const count = countMatch ? parseInt(countMatch[1], 10) : 0;
+        const cleanName = p.replace(/\(\s*\d+\s*(?:kos|kom)?\s*\)/i, '').trim();
+        parsedSum += count;
+        locations.push({
+          name: cleanName || fallbackLoc,
+          count: count,
+          isPrimary: (idx === 0)
+        });
+      });
+      const bCount = Math.max(0, Number(bData.count) || 0);
+      if (bCount > parsedSum && locations.length > 0) {
+        locations[0].count += (bCount - parsedSum);
+      }
+    } else {
+      locations = [{
+        name: rawLoc || fallbackLoc,
+        count: Math.max(0, Number(bData.count) || 0),
+        isPrimary: true
+      }];
+    }
+  }
+
+  if (locations.length === 0) {
+    locations.push({ name: fallbackLoc, count: Math.max(0, Number(bData.count) || 0), isPrimary: true });
+  }
+
+  const totalCount = locations.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
+  let summaryLoc = '';
+  if (locations.length <= 1) {
+    summaryLoc = locations[0]?.name || fallbackLoc;
+  } else {
+    summaryLoc = locations.map(l => `${l.name} (${l.count} kos)`).join(' / ');
+  }
+
+  return {
+    count: totalCount,
+    location: summaryLoc,
+    locations: locations
+  };
+}
+
 function normalizeItemBoxes(item) {
   if (!item) return item;
   const parsed = parseBoxInfo(item.boxInfo);
@@ -66,15 +134,11 @@ function normalizeItemBoxes(item) {
   }
 
   for (let b = 1; b <= boxTotal; b++) {
-    if (!item.boxes[b]) {
-      item.boxes[b] = {
-        count: (boxTotal === 1) ? (Number(item.quantity) || 0) : ((b === parsed.boxCurrent) ? (Number(item.quantity) || 0) : 0),
-        location: String(item.location || 'Brez lokacije').trim()
-      };
-    } else {
-      item.boxes[b].count = Number(item.boxes[b].count) || 0;
-      item.boxes[b].location = String(item.boxes[b].location || item.location || 'Brez lokacije').trim();
-    }
+    const rawBox = item.boxes[b] || {
+      count: (boxTotal === 1) ? (Number(item.quantity) || 0) : ((b === parsed.boxCurrent) ? (Number(item.quantity) || 0) : 0),
+      location: String(item.location || 'Brez lokacije').trim()
+    };
+    item.boxes[b] = normalizeBoxLocations(rawBox, item.location || 'Brez lokacije');
   }
 
   return item;
@@ -82,6 +146,7 @@ function normalizeItemBoxes(item) {
 
 const DB = {
   parseBoxInfo,
+  normalizeBoxLocations,
   normalizeItemBoxes,
 
   getBoxStats(item) {
@@ -92,14 +157,15 @@ const DB = {
     const missing = [];
 
     for (let b = 1; b <= boxTotal; b++) {
-      const bData = it.boxes[b] || { count: 0, location: it.location || 'Brez lokacije' };
+      const bData = it.boxes[b] || { count: 0, location: it.location || 'Brez lokacije', locations: [] };
       const count = Number(bData.count) || 0;
       counts.push(count);
       breakdown.push({
         boxNum: b,
         boxTotal: boxTotal,
         count: count,
-        location: bData.location || 'Brez lokacije'
+        location: bData.location || 'Brez lokacije',
+        locations: bData.locations || [{ name: bData.location || 'Brez lokacije', count: count, isPrimary: true }]
       });
     }
 
@@ -335,22 +401,43 @@ const DB = {
 
         if (boxLocation) {
           const cleanLoc = String(boxLocation).trim();
-          if (cleanLoc) {
-            if (!item.boxes[bNum]) {
-              item.boxes[bNum] = { count: 0, location: cleanLoc };
+          if (cleanLoc && item.boxes[bNum]) {
+            const locs = item.boxes[bNum].locations || [];
+            let foundLoc = locs.find(l => l.name.toLowerCase() === cleanLoc.toLowerCase());
+            if (foundLoc) {
+              foundLoc.count = Math.max(0, (Number(foundLoc.count) || 0) + Number(delta));
             } else {
-              item.boxes[bNum].location = cleanLoc;
+              locs.push({
+                name: cleanLoc,
+                count: Math.max(0, Number(delta)),
+                isPrimary: locs.length === 0
+              });
             }
-            if (item.boxTotal === 1 || bNum === 1) {
-              item.location = cleanLoc;
+            item.boxes[bNum] = normalizeBoxLocations(item.boxes[bNum], cleanLoc);
+          }
+        } else if (item.boxes && item.boxes[bNum]) {
+          let remaining = Math.abs(Number(delta));
+          const locs = item.boxes[bNum].locations || [];
+          if (delta >= 0) {
+            if (locs.length > 0) {
+              locs[0].count = (Number(locs[0].count) || 0) + remaining;
+            } else {
+              locs.push({ name: item.location || 'Brez lokacije', count: remaining, isPrimary: true });
+            }
+          } else {
+            for (let l of locs) {
+              if (remaining <= 0) break;
+              if (l.count > 0) {
+                const take = Math.min(l.count, remaining);
+                l.count -= take;
+                remaining -= take;
+              }
+            }
+            if (remaining > 0 && locs.length > 0) {
+              locs[0].count = Math.max(0, locs[0].count - remaining);
             }
           }
-        }
-
-        // Če spreminjamo določeno škatlo (ali privzeto škatlo 1)
-        if (item.boxes && item.boxes[bNum]) {
-          const currentBoxCount = Number(item.boxes[bNum].count) || 0;
-          item.boxes[bNum].count = Math.max(0, currentBoxCount + Number(delta));
+          item.boxes[bNum] = normalizeBoxLocations(item.boxes[bNum], item.location);
         }
 
         // Izračunaj nove statistike kompletov
@@ -402,13 +489,27 @@ const DB = {
         item = normalizeItemBoxes(item);
         const boxTotal = Math.max(1, item.boxTotal || 1);
         const issueQty = Math.max(1, Number(qty) || 1);
+        const pickDetails = [];
 
         for (let b = 1; b <= boxTotal; b++) {
           if (!item.boxes[b]) {
-            item.boxes[b] = { count: 0, location: item.location || 'Brez lokacije' };
+            item.boxes[b] = { count: 0, location: item.location || 'Brez lokacije', locations: [] };
           }
-          const currentCount = Number(item.boxes[b].count) || 0;
-          item.boxes[b].count = Math.max(0, currentCount - issueQty);
+          let remaining = issueQty;
+          const locs = item.boxes[b].locations || [];
+          for (let l of locs) {
+            if (remaining <= 0) break;
+            if (l.count > 0) {
+              const take = Math.min(l.count, remaining);
+              l.count -= take;
+              remaining -= take;
+              pickDetails.push(`Šk.${b}: ${take}x iz ${l.name}`);
+            }
+          }
+          if (remaining > 0 && locs.length > 0) {
+            locs[0].count = Math.max(0, locs[0].count - remaining);
+          }
+          item.boxes[b] = normalizeBoxLocations(item.boxes[b], item.location);
         }
 
         const stats = DB.getBoxStats(item);
@@ -417,6 +518,7 @@ const DB = {
 
         itemStore.put(item);
 
+        const pickSummary = pickDetails.length > 0 ? ` [${pickDetails.join(', ')}]` : '';
         logStore.add({
           itemId: item.id,
           sku: item.sku,
@@ -424,7 +526,7 @@ const DB = {
           changeType: 'out',
           changeAmount: -issueQty,
           resultingQty: item.quantity,
-          note: (note || 'Izdaja artikla kupcu') + ` (-${issueQty}x komplet, preostalo kompletov: ${item.quantity})`,
+          note: (note || 'Izdaja artikla kupcu') + ` (-${issueQty}x komplet${pickSummary}, preostalo: ${item.quantity})`,
           timestamp: new Date().toISOString()
         });
 
@@ -593,23 +695,36 @@ const DB = {
         notes: '⚠️ 0 celih kompletov! Na zalogi 4x Box 1/2, manjka 4x Box 2/2'
       },
 
-      // Artikli s skeniranega računa kupca (za takojšnji preizkus vodenja do regala)
+      // Artikli s skeniranega računa kupca (s prikazom delitve škatel na več regalov)
       {
         sku: '3618930',
         name: 'Predalnik LIMFJORDEN 4 predali bela',
         category: 'Omarice & Mizice',
-        location: 'Regal P-04 / Regal P-05',
+        location: 'Regal P-04 / Regal P-09 / Regal P-05',
         quantity: 6,
         minQuantity: 2,
         unit: 'garnitura',
         boxInfo: 'Box 1/2',
         boxTotal: 2,
         boxes: {
-          1: { count: 6, location: 'Regal P-04 (ogrodje & stranice)' },
-          2: { count: 6, location: 'Regal P-05 (predali & vodila)' }
+          1: {
+            count: 6,
+            location: 'Regal P-04 (4 kos) / Regal P-09 (2 kos)',
+            locations: [
+              { name: 'Regal P-04 (ogrodje & stranice)', count: 4, isPrimary: true },
+              { name: 'Regal P-09 (preliv/rezerva)', count: 2, isPrimary: false }
+            ]
+          },
+          2: {
+            count: 6,
+            location: 'Regal P-05 (predali & vodila)',
+            locations: [
+              { name: 'Regal P-05 (predali & vodila)', count: 6, isPrimary: true }
+            ]
+          }
         },
         piecesPerBox: 1,
-        notes: 'JYSK Predalnik LIMFJORDEN 4 predali (2 škatli)'
+        notes: 'JYSK Predalnik LIMFJORDEN (Škatla 1/2 razdeljena na P-04 in P-09 rezervo)'
       },
       {
         sku: '3670619',
@@ -622,7 +737,13 @@ const DB = {
         boxInfo: 'Box 1/1',
         boxTotal: 1,
         boxes: {
-          1: { count: 8, location: 'Regal D-01 (polica 2)' }
+          1: {
+            count: 8,
+            location: 'Regal D-01 (polica 2)',
+            locations: [
+              { name: 'Regal D-01 (polica 2)', count: 8, isPrimary: true }
+            ]
+          }
         },
         piecesPerBox: 1,
         notes: 'Razna oprema DIVERSES'
@@ -639,47 +760,72 @@ const DB = {
    * Preveri in po potrebi zagotovi obstoj artiklov z računa, da se takoj prikažejo pravilni regali
    */
   async ensureReceiptDemoItems() {
-    const items = [
-      {
-        sku: '3618930',
-        name: 'Predalnik LIMFJORDEN 4 predali bela',
-        category: 'Omarice & Mizice',
-        location: 'Regal P-04 / Regal P-05',
-        quantity: 6,
-        minQuantity: 2,
-        unit: 'garnitura',
-        boxInfo: 'Box 1/2',
-        boxTotal: 2,
-        boxes: {
-          1: { count: 6, location: 'Regal P-04 (ogrodje & stranice)' },
-          2: { count: 6, location: 'Regal P-05 (predali & vodila)' }
+    const limfjorden = {
+      sku: '3618930',
+      name: 'Predalnik LIMFJORDEN 4 predali bela',
+      category: 'Omarice & Mizice',
+      location: 'Regal P-04 / Regal P-09 / Regal P-05',
+      quantity: 6,
+      minQuantity: 2,
+      unit: 'garnitura',
+      boxInfo: 'Box 1/2',
+      boxTotal: 2,
+      boxes: {
+        1: {
+          count: 6,
+          location: 'Regal P-04 (4 kos) / Regal P-09 (2 kos)',
+          locations: [
+            { name: 'Regal P-04 (ogrodje & stranice)', count: 4, isPrimary: true },
+            { name: 'Regal P-09 (preliv/rezerva)', count: 2, isPrimary: false }
+          ]
         },
-        piecesPerBox: 1,
-        notes: 'JYSK Predalnik LIMFJORDEN 4 predali (2 škatli)'
+        2: {
+          count: 6,
+          location: 'Regal P-05 (predali & vodila)',
+          locations: [
+            { name: 'Regal P-05 (predali & vodila)', count: 6, isPrimary: true }
+          ]
+        }
       },
-      {
-        sku: '3670619',
-        name: 'DIVERSES',
-        category: 'Splošno',
-        location: 'Regal D-01',
-        quantity: 8,
-        minQuantity: 2,
-        unit: 'kos',
-        boxInfo: 'Box 1/1',
-        boxTotal: 1,
-        boxes: {
-          1: { count: 8, location: 'Regal D-01 (polica 2)' }
-        },
-        piecesPerBox: 1,
-        notes: 'Razna oprema DIVERSES'
-      }
-    ];
+      piecesPerBox: 1,
+      notes: 'JYSK Predalnik LIMFJORDEN (Škatla 1/2 razdeljena na P-04 in P-09 rezervo)'
+    };
 
-    for (const it of items) {
-      const existing = await this.getItemBySKU(it.sku);
-      if (!existing) {
-        await this.addItem(it);
-      }
+    const diverses = {
+      sku: '3670619',
+      name: 'DIVERSES',
+      category: 'Splošno',
+      location: 'Regal D-01',
+      quantity: 8,
+      minQuantity: 2,
+      unit: 'kos',
+      boxInfo: 'Box 1/1',
+      boxTotal: 1,
+      boxes: {
+        1: {
+          count: 8,
+          location: 'Regal D-01 (polica 2)',
+          locations: [
+            { name: 'Regal D-01 (polica 2)', count: 8, isPrimary: true }
+          ]
+        }
+      },
+      piecesPerBox: 1,
+      notes: 'Razna oprema DIVERSES'
+    };
+
+    const existing1 = await this.getItemBySKU(limfjorden.sku);
+    if (!existing1) {
+      await this.addItem(limfjorden);
+    } else if (!existing1.boxes[1]?.locations || existing1.boxes[1].locations.length < 2) {
+      existing1.boxes = limfjorden.boxes;
+      existing1.location = limfjorden.location;
+      await this.updateItem(existing1);
+    }
+
+    const existing2 = await this.getItemBySKU(diverses.sku);
+    if (!existing2) {
+      await this.addItem(diverses);
     }
   }
 };

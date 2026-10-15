@@ -309,20 +309,64 @@ function renderModalBoxInputs(item) {
   const currentBoxes = (item && item.boxes) ? item.boxes : {};
 
   for (let b = 1; b <= boxTotal; b++) {
-    const bData = currentBoxes[b] || { count: 0, location: document.getElementById('itemLocation').value || '' };
+    const rawBox = currentBoxes[b] || { count: 0, location: document.getElementById('itemLocation').value || '' };
+    const bData = DB.normalizeBoxLocations(rawBox, document.getElementById('itemLocation').value || 'Brez lokacije');
+    const locs = (bData.locations && bData.locations.length > 0) ? bData.locations : [{ name: bData.location || '', count: bData.count || 0, isPrimary: true }];
+
     html += `
-      <div style="display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,0.04); padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.06);">
-        <span style="font-size: 0.8rem; font-weight: 700; width: 90px; color: var(--primary);">Škatla ${b}/${boxTotal}:</span>
-        <input type="text" class="form-control modal-box-loc" data-box="${b}" placeholder="Lokacija (npr. Regal A-01)" value="${escapeHtml(bData.location || '')}" style="flex: 2; padding: 6px 8px; font-size: 0.85rem;">
-        <div style="display:flex; align-items:center; gap: 4px; flex: 1;">
-          <input type="number" min="0" class="form-control modal-box-count" data-box="${b}" placeholder="Kosov" value="${bData.count || 0}" style="padding: 6px 8px; font-size: 0.85rem; text-align: center;">
-          <span style="font-size: 0.72rem; color: var(--text-muted);">kos</span>
+      <div class="modal-box-group" data-box="${b}" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 8px 10px; display:flex; flex-direction:column; gap:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size: 0.82rem; font-weight: 700; color: var(--primary);">
+            📦 Škatla ${b}/${boxTotal}
+          </span>
+          <button type="button" onclick="addModalShelfRow(${b})" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 700;">
+            ➕ Dodaj drug regal (preliv)
+          </button>
+        </div>
+        <div class="modal-box-shelves-container" id="modalBoxShelves_${b}" style="display:flex; flex-direction:column; gap:5px;">
+          ${locs.map((loc, lIdx) => `
+            <div class="modal-shelf-row" style="display:flex; gap:6px; align-items:center;">
+              <span style="font-size:0.75rem; color:${lIdx === 0 ? 'var(--text-muted)' : '#fbbf24'}; width: 62px; font-weight:600;">
+                ${lIdx === 0 ? 'Glavni:' : 'Rezerva:'}
+              </span>
+              <input type="text" class="form-control modal-shelf-name" placeholder="Regal (npr. Regal P-04)" value="${escapeHtml(loc.name)}" style="flex:2; padding:5px 8px; font-size:0.85rem;">
+              <div style="display:flex; align-items:center; gap:3px;">
+                <input type="number" min="0" class="form-control modal-shelf-count" placeholder="Kosov" value="${loc.count}" style="width:65px; text-align:center; padding:5px 6px; font-size:0.85rem;">
+                <span style="font-size:0.72rem; color:var(--text-muted);">kos</span>
+              </div>
+              ${lIdx > 0 ? `
+                <button type="button" onclick="removeModalShelfRow(this)" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:1.1rem; padding:0 4px;" title="Odstrani ta regal">✕</button>
+              ` : '<div style="width:20px;"></div>'}
+            </div>
+          `).join('')}
         </div>
       </div>
     `;
   }
   rowsEl.innerHTML = html;
 }
+
+window.addModalShelfRow = function(boxNum) {
+  const container = document.getElementById(`modalBoxShelves_${boxNum}`);
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'modal-shelf-row';
+  div.style.cssText = 'display:flex; gap:6px; align-items:center;';
+  div.innerHTML = `
+    <span style="font-size:0.75rem; color:#fbbf24; width: 62px; font-weight:600;">Rezerva:</span>
+    <input type="text" class="form-control modal-shelf-name" placeholder="Rezervni regal (npr. Regal P-09)" value="" style="flex:2; padding:5px 8px; font-size:0.85rem;">
+    <div style="display:flex; align-items:center; gap:3px;">
+      <input type="number" min="0" class="form-control modal-shelf-count" placeholder="Kosov" value="0" style="width:65px; text-align:center; padding:5px 6px; font-size:0.85rem;">
+      <span style="font-size:0.72rem; color:var(--text-muted);">kos</span>
+    </div>
+    <button type="button" onclick="removeModalShelfRow(this)" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:1.1rem; padding:0 4px;" title="Odstrani ta regal">✕</button>
+  `;
+  container.appendChild(div);
+};
+
+window.removeModalShelfRow = function(btn) {
+  btn.closest('.modal-shelf-row')?.remove();
+};
 
 /* =========================================================================
    4. MODALNA OKNA: DODAJ / UREDI & PREMIK
@@ -377,24 +421,37 @@ function setupModals() {
     let boxes = {};
     let counts = [];
 
-    if (boxTotal > 1 && locInputs.length > 0) {
-      locInputs.forEach(input => {
-        const b = parseInt(input.dataset.box, 10);
-        const loc = input.value.trim();
-        const cntEl = document.querySelector(`.modal-box-count[data-box="${b}"]`);
-        const cnt = Number(cntEl?.value) || 0;
-        boxes[b] = {
-          count: cnt,
-          location: loc || document.getElementById('itemLocation').value || 'Brez lokacije'
-        };
-        counts.push(cnt);
-      });
+    if (boxTotal > 1) {
+      for (let b = 1; b <= boxTotal; b++) {
+        const shelfRows = document.querySelectorAll(`#modalBoxShelves_${b} .modal-shelf-row`);
+        const locations = [];
+        if (shelfRows.length > 0) {
+          shelfRows.forEach((row, idx) => {
+            const nameInput = row.querySelector('.modal-shelf-name');
+            const countInput = row.querySelector('.modal-shelf-count');
+            const name = nameInput?.value?.trim() || `Regal ${b}`;
+            const count = Number(countInput?.value) || 0;
+            locations.push({
+              name: name,
+              count: count,
+              isPrimary: (idx === 0)
+            });
+          });
+        } else {
+          locations.push({
+            name: document.getElementById('itemLocation').value || 'Brez lokacije',
+            count: 0,
+            isPrimary: true
+          });
+        }
+        const bData = DB.normalizeBoxLocations({ locations }, document.getElementById('itemLocation').value || 'Brez lokacije');
+        boxes[b] = bData;
+        counts.push(bData.count);
+      }
     } else {
       const singleQty = Number(document.getElementById('itemQuantity').value) || 0;
-      boxes[1] = {
-        count: singleQty,
-        location: document.getElementById('itemLocation').value || 'Brez lokacije'
-      };
+      const singleLoc = document.getElementById('itemLocation').value || 'Brez lokacije';
+      boxes[1] = DB.normalizeBoxLocations({ count: singleQty, location: singleLoc }, singleLoc);
       counts.push(singleQty);
     }
 
@@ -1433,32 +1490,81 @@ function renderDispatchRouteList() {
       const boxTotal = stats.boxTotal;
 
       if (boxTotal > 1) {
-        const shelves = stats.breakdown.map(b => b.location).filter(Boolean);
-        const uniqueShelves = [...new Set(shelves)];
-        shelfBadges = uniqueShelves.map(s => `
-          <div class="dispatch-shelf-pill highlight">
-            <span>📍</span> <span>${escapeHtml(s)}</span>
-          </div>
-        `).join(' ');
+        const badgeList = [];
+        stats.breakdown.forEach(b => {
+          const locs = b.locations || [{ name: b.location, count: b.count, isPrimary: true }];
+          const activeLoc = locs.find(l => l.count > 0) || locs[0];
+          const hasMultiple = locs.length > 1;
+
+          if (hasMultiple) {
+            locs.forEach(l => {
+              if (l.count > 0) {
+                const isTarget = (l === activeLoc);
+                badgeList.push(`
+                  <div class="dispatch-shelf-pill ${isTarget ? 'highlight' : ''}" style="${!isTarget ? 'border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.08);' : ''}">
+                    <span>📍</span> <span>Šk.${b.boxNum}: ${escapeHtml(l.name)}</span>
+                    <span style="font-size:0.75rem; opacity:0.9; margin-left:4px;">(${l.count} kos)</span>
+                  </div>
+                `);
+              } else {
+                badgeList.push(`
+                  <div class="dispatch-shelf-pill" style="border-color: #ef4444; color: #f87171; background: rgba(239, 68, 68, 0.1);">
+                    <span>⚠️ Šk.${b.boxNum}: ${escapeHtml(l.name)} (prazno)</span>
+                  </div>
+                `);
+              }
+            });
+          } else {
+            badgeList.push(`
+              <div class="dispatch-shelf-pill highlight">
+                <span>📍</span> <span>Šk.${b.boxNum}: ${escapeHtml(activeLoc.name)}</span>
+              </div>
+            `);
+          }
+        });
+
+        shelfBadges = badgeList.join(' ');
 
         multiBoxSection = `
           <div class="dispatch-multibox-box">
             <div style="font-size: 0.78rem; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
               <span>⚠️ POZOR: Artikel sestavljata ${boxTotal} škatli! Poberi obe škatli:</span>
             </div>
-            ${stats.breakdown.map(b => `
-              <div class="dispatch-box-row">
-                <div class="dispatch-box-name">
-                  <span>📦</span> Škatla ${b.boxNum}/${boxTotal}
+            ${stats.breakdown.map(b => {
+              const locs = b.locations || [{ name: b.location, count: b.count, isPrimary: true }];
+              const activeLoc = locs.find(l => l.count > 0) || locs[0];
+
+              return `
+                <div class="dispatch-box-row" style="flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div class="dispatch-box-name">
+                      <span>📦</span> Škatla ${b.boxNum}/${boxTotal}
+                    </div>
+                    <div class="dispatch-box-stock">
+                      (Skupaj zaloga: <strong>${b.count}</strong> kos)
+                    </div>
+                  </div>
+                  
+                  <div style="display:flex; flex-direction:column; gap:4px; margin-top:2px;">
+                    ${locs.map(l => {
+                      const isTarget = (l === activeLoc && l.count > 0);
+                      const isZero = (l.count === 0);
+                      return `
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; background:${isTarget ? 'rgba(245, 158, 11, 0.12)' : (isZero ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.03)')}; padding:4px 8px; border-radius:4px; border:1px solid ${isTarget ? 'rgba(245, 158, 11, 0.35)' : 'transparent'};">
+                          <div>
+                            <span style="font-weight:700; color:${isTarget ? '#fbbf24' : (isZero ? '#ef4444' : '#cbd5e1')};">
+                              ${isZero ? '⚠️ Prazen regal:' : (isTarget ? '👉 Glavni regal:' : '🔄 Preliv / rezerva:')}
+                            </span>
+                            <span style="color:#fff; margin-left:4px; font-weight:600;">${escapeHtml(l.name)}</span>
+                          </div>
+                          <span style="font-weight:700; color:${l.count > 0 ? 'var(--primary)' : 'var(--text-dim)'};">${l.count} kos</span>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
                 </div>
-                <div class="dispatch-box-shelf">
-                  📍 ${escapeHtml(b.location)}
-                </div>
-                <div class="dispatch-box-stock">
-                  (Zaloga: <strong>${b.count}</strong> kos)
-                </div>
-              </div>
-            `).join('')}
+              `;
+            }).join('')}
           </div>
         `;
 
@@ -1471,12 +1577,15 @@ function renderDispatchRouteList() {
           </div>
         `;
       } else {
-        const loc = dbIt.location || 'Regal D-01';
-        shelfBadges = `
-          <div class="dispatch-shelf-pill highlight">
-            <span>📍</span> <span>${escapeHtml(loc)}</span>
+        const singleLocs = dbIt.boxes?.[1]?.locations || [{ name: dbIt.location || 'Regal D-01', count: dbIt.quantity, isPrimary: true }];
+        const activeLoc = singleLocs.find(l => l.count > 0) || singleLocs[0];
+
+        shelfBadges = singleLocs.map(l => `
+          <div class="dispatch-shelf-pill ${l === activeLoc ? 'highlight' : ''}" style="${l !== activeLoc ? 'border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.08);' : ''}">
+            <span>📍</span> <span>${escapeHtml(l.name)}</span>
+            <span style="font-size:0.75rem; opacity:0.9; margin-left:4px;">(${l.count} kos)</span>
           </div>
-        `;
+        `).join(' ');
 
         stockSummary = `
           <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items:center;">
