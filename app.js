@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 6. Dogodki za uvoz/izvoz in nastavitve
   setupSettingsAndBackup();
 
+  // 6b. Priprava modula za inventuro
+  setupAuditModule();
+
   // 7. Priprava optičnega čitalnika škatel (OCR)
   setupBoxOCRScanner();
 
@@ -110,6 +113,8 @@ function setupTabNavigation() {
         refreshInventory();
       } else if (targetId === 'tab-history') {
         refreshLogs();
+      } else if (targetId === 'tab-audit') {
+        loadAuditSession();
       }
     });
   });
@@ -2035,6 +2040,725 @@ async function refreshLogs() {
       </div>
     `;
   }).join('');
+}
+
+/* =========================================================================
+   6b. MODUL ZA INVENTURO (STOCKTAKING AUDIT)
+   ========================================================================= */
+let auditSession = {
+  entries: [],
+  shelfFilter: 'all',
+  statusFilter: 'all'
+};
+const AUDIT_STORAGE_KEY = 'skladisce_audit_session_v1';
+
+function setupAuditModule() {
+  // 1. Filter po regalu
+  const shelfFilterEl = document.getElementById('auditShelfFilter');
+  if (shelfFilterEl) {
+    shelfFilterEl.addEventListener('change', (e) => {
+      auditSession.shelfFilter = e.target.value;
+      saveAuditSession();
+      renderAuditList();
+      updateAuditStats();
+    });
+  }
+
+  // 2. Filter po statusu (Vse / Odstopanja / Še neprešteto / Usklajeno)
+  const filterChipsEl = document.getElementById('auditFilterChips');
+  if (filterChipsEl) {
+    filterChipsEl.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      filterChipsEl.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      auditSession.statusFilter = chip.dataset.auditFilter || 'all';
+      saveAuditSession();
+      renderAuditList();
+    });
+  }
+
+  // 3. Hitro skeniranje / iskanje po 7-mestni šifri
+  const scanInput = document.getElementById('auditScanInput');
+  const btnQuickCount = document.getElementById('btnAuditQuickCount');
+
+  const triggerAuditScan = () => {
+    const rawVal = scanInput ? scanInput.value.trim() : '';
+    if (!rawVal) return;
+    handleAuditScan(rawVal);
+    if (scanInput) scanInput.value = '';
+  };
+
+  if (scanInput) {
+    scanInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerAuditScan();
+      }
+    });
+  }
+  if (btnQuickCount) {
+    btnQuickCount.addEventListener('click', triggerAuditScan);
+  }
+
+  // 4. Ponastavitev popisa
+  const btnReset = document.getElementById('btnResetAuditSession');
+  if (btnReset) {
+    btnReset.addEventListener('click', resetAuditSession);
+  }
+
+  // 5. Izvoz PDF Zapisnika
+  const btnPdf = document.getElementById('btnExportAuditPDF');
+  if (btnPdf) {
+    btnPdf.addEventListener('click', exportAuditPDF);
+  }
+
+  // 6. Uveljavitev popisa v zalogo
+  const btnApply = document.getElementById('btnApplyAudit');
+  if (btnApply) {
+    btnApply.addEventListener('click', applyAuditToInventory);
+  }
+}
+
+async function loadAuditSession(forceReset = false) {
+  try {
+    const allItems = await DB.getAllItems();
+    const newEntries = [];
+    const shelfSet = new Set();
+
+    for (const item of allItems) {
+      const norm = DB.normalizeItemBoxes(item);
+      const boxTotal = norm.boxTotal || 1;
+
+      for (let b = 1; b <= boxTotal; b++) {
+        const bObj = norm.boxes[b];
+        if (!bObj) continue;
+
+        const locs = (bObj.locations && bObj.locations.length > 0)
+          ? bObj.locations
+          : [{ name: bObj.location || norm.location || 'Brez lokacije', count: bObj.count || 0 }];
+
+        for (const loc of locs) {
+          const locName = String(loc.name || 'Brez lokacije').trim();
+          shelfSet.add(locName);
+
+          const key = `${item.id}_b${b}_${encodeURIComponent(locName)}`;
+          newEntries.push({
+            key,
+            itemId: item.id,
+            sku: item.sku,
+            name: item.name,
+            category: item.category || '',
+            boxNum: b,
+            boxTotal: boxTotal,
+            locName: locName,
+            bookQty: Number(loc.count) || 0,
+            countedQty: 0,
+            isCounted: false
+          });
+        }
+      }
+    }
+
+    // Obnovi predhodno shranjene štetje iz localStorage
+    if (!forceReset) {
+      try {
+        const savedRaw = localStorage.getItem(AUDIT_STORAGE_KEY);
+        if (savedRaw) {
+          const savedData = JSON.parse(savedRaw);
+          if (savedData && Array.isArray(savedData.entries)) {
+            const savedMap = new Map();
+            savedData.entries.forEach(e => savedMap.set(e.key, e));
+
+            newEntries.forEach(e => {
+              const prev = savedMap.get(e.key);
+              if (prev && prev.isCounted) {
+                e.countedQty = Number(prev.countedQty) || 0;
+                e.isCounted = true;
+              }
+            });
+            if (savedData.shelfFilter) auditSession.shelfFilter = savedData.shelfFilter;
+            if (savedData.statusFilter) auditSession.statusFilter = savedData.statusFilter;
+          }
+        }
+      } catch (err) {
+        console.warn('Napaka pri branju shranjene inventurne seje:', err);
+      }
+    }
+
+    auditSession.entries = newEntries;
+
+    // Posodobi spustni seznam regalov
+    const shelfSelect = document.getElementById('auditShelfFilter');
+    if (shelfSelect) {
+      const currentSelected = auditSession.shelfFilter || 'all';
+      const sortedShelves = Array.from(shelfSet).sort((a, b) => a.localeCompare(b, 'sl-SI'));
+
+      let optionsHtml = '<option value="all">📍 Vsi regali (Celotno skladišče)</option>';
+      sortedShelves.forEach(shelf => {
+        const isSel = (shelf === currentSelected) ? 'selected' : '';
+        optionsHtml += `<option value="${escapeHtml(shelf)}" ${isSel}>📍 ${escapeHtml(shelf)}</option>`;
+      });
+      shelfSelect.innerHTML = optionsHtml;
+    }
+
+    // Posodobi statusne gumbe
+    const filterChips = document.querySelectorAll('#auditFilterChips .chip');
+    filterChips.forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.auditFilter === auditSession.statusFilter);
+    });
+
+    updateAuditStats();
+    renderAuditList();
+  } catch (err) {
+    console.error('Napaka pri nalaganju inventurne seje:', err);
+    showToast('Napaka pri nalaganju inventure: ' + err.message);
+  }
+}
+
+function saveAuditSession() {
+  try {
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(auditSession));
+  } catch (e) {
+    console.warn('Ne morem shraniti inventurne seje v localStorage:', e);
+  }
+}
+
+function updateAuditStats() {
+  const entries = auditSession.entries || [];
+  const activeShelf = auditSession.shelfFilter || 'all';
+  const filtered = (activeShelf === 'all')
+    ? entries
+    : entries.filter(e => e.locName.toLowerCase() === activeShelf.toLowerCase());
+
+  const total = filtered.length;
+  const counted = filtered.filter(e => e.isCounted).length;
+  const match = filtered.filter(e => e.isCounted && e.countedQty === e.bookQty).length;
+  const diff = filtered.filter(e => e.isCounted && e.countedQty !== e.bookQty).length;
+
+  const totalEl = document.getElementById('auditStatTotal');
+  const countedEl = document.getElementById('auditStatCounted');
+  const matchEl = document.getElementById('auditStatMatch');
+  const diffEl = document.getElementById('auditStatDiff');
+
+  if (totalEl) totalEl.textContent = total;
+  if (countedEl) countedEl.textContent = counted;
+  if (matchEl) matchEl.textContent = match;
+  if (diffEl) diffEl.textContent = diff;
+}
+
+function getAuditEntryStatus(entry) {
+  if (!entry.isCounted) return 'uncounted';
+  if (entry.countedQty === entry.bookQty) return 'match';
+  return 'diff';
+}
+
+function renderAuditList() {
+  const container = document.getElementById('auditItemsList');
+  if (!container) return;
+
+  const entries = auditSession.entries || [];
+  const shelf = auditSession.shelfFilter || 'all';
+  const statusFilter = auditSession.statusFilter || 'all';
+
+  const list = entries.filter(entry => {
+    // Filter regala
+    if (shelf !== 'all' && entry.locName.toLowerCase() !== shelf.toLowerCase()) {
+      return false;
+    }
+    // Filter statusa
+    const status = getAuditEntryStatus(entry);
+    if (statusFilter === 'diff' && status !== 'diff') return false;
+    if (statusFilter === 'uncounted' && status !== 'uncounted') return false;
+    if (statusFilter === 'match' && status !== 'match') return false;
+    return true;
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="empty-box" style="padding: 32px 16px; text-align: center;">
+        <div style="font-size: 2.2rem; margin-bottom: 8px;">📋</div>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Ni postavk za izbrane filtre.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = list.map(entry => {
+    const status = getAuditEntryStatus(entry);
+    const diff = entry.countedQty - entry.bookQty;
+    const keyAttr = escapeHtml(entry.key);
+
+    let diffBadgeHtml = '';
+    if (!entry.isCounted) {
+      diffBadgeHtml = `<span class="audit-diff-badge uncounted">⚪ Še neprešteto</span>`;
+    } else if (diff === 0) {
+      diffBadgeHtml = `<span class="audit-diff-badge match">✓ Usklajeno (0)</span>`;
+    } else if (diff < 0) {
+      diffBadgeHtml = `<span class="audit-diff-badge deficit">⚠️ Manjko (${diff})</span>`;
+    } else {
+      diffBadgeHtml = `<span class="audit-diff-badge surplus">➕ Višek (+${diff})</span>`;
+    }
+
+    return `
+      <div class="audit-card status-${status}" id="auditCard_${keyAttr}">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
+              <span class="item-sku-badge">${escapeHtml(entry.sku)}</span>
+              <span class="chip" style="padding: 2px 7px; font-size: 0.72rem; border-color: rgba(56, 189, 248, 0.3); color: #38bdf8;">
+                Škatla ${entry.boxNum}/${entry.boxTotal}
+              </span>
+              <span class="location-badge" style="font-size: 0.75rem;">
+                📍 ${escapeHtml(entry.locName)}
+              </span>
+            </div>
+            <div style="font-weight: 700; font-size: 0.95rem; color: #fff; line-height: 1.3;">
+              ${escapeHtml(entry.name)}
+            </div>
+          </div>
+        </div>
+
+        <div class="audit-counter-row">
+          <div style="font-size: 0.85rem; color: var(--text-muted);">
+            Knjižno: <strong style="color: #fff; font-size: 0.95rem;">${entry.bookQty}</strong> kos
+          </div>
+
+          <div class="audit-counter-ctrl">
+            <button type="button" class="btn-audit-step" onclick="changeAuditCount('${keyAttr}', -1)">-</button>
+            <input type="number" class="audit-count-input" id="auditInput_${keyAttr}" value="${entry.isCounted ? entry.countedQty : ''}" placeholder="0" min="0" onchange="setAuditCountExact('${keyAttr}', this.value)" onfocus="this.select()">
+            <button type="button" class="btn-audit-step" onclick="changeAuditCount('${keyAttr}', 1)">+</button>
+            <button type="button" class="chip" style="margin-left: 4px; padding: 6px 9px; font-size: 0.75rem; border-color: rgba(16, 185, 129, 0.4); color: #10b981; font-weight: 700;" onclick="matchAuditBook('${keyAttr}')" title="Nastavi enako kot knjižno">
+              = Knjižno
+            </button>
+          </div>
+
+          <div id="auditDiff_${keyAttr}">
+            ${diffBadgeHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateAuditCardDOM(entry) {
+  const keyAttr = escapeHtml(entry.key);
+  const card = document.getElementById(`auditCard_${keyAttr}`);
+  const input = document.getElementById(`auditInput_${keyAttr}`);
+  const diffDiv = document.getElementById(`auditDiff_${keyAttr}`);
+
+  if (input) {
+    input.value = entry.isCounted ? entry.countedQty : '';
+  }
+
+  const status = getAuditEntryStatus(entry);
+  if (card) {
+    card.className = `audit-card status-${status}`;
+  }
+
+  if (diffDiv) {
+    const diff = entry.countedQty - entry.bookQty;
+    if (!entry.isCounted) {
+      diffDiv.innerHTML = `<span class="audit-diff-badge uncounted">⚪ Še neprešteto</span>`;
+    } else if (diff === 0) {
+      diffDiv.innerHTML = `<span class="audit-diff-badge match">✓ Usklajeno (0)</span>`;
+    } else if (diff < 0) {
+      diffDiv.innerHTML = `<span class="audit-diff-badge deficit">⚠️ Manjko (${diff})</span>`;
+    } else {
+      diffDiv.innerHTML = `<span class="audit-diff-badge surplus">➕ Višek (+${diff})</span>`;
+    }
+  }
+}
+
+window.changeAuditCount = function(key, delta) {
+  const entry = auditSession.entries.find(e => e.key === key);
+  if (!entry) return;
+
+  if (!entry.isCounted) {
+    entry.countedQty = Math.max(0, delta > 0 ? 1 : 0);
+  } else {
+    entry.countedQty = Math.max(0, (Number(entry.countedQty) || 0) + delta);
+  }
+  entry.isCounted = true;
+
+  saveAuditSession();
+  updateAuditStats();
+  updateAuditCardDOM(entry);
+};
+
+window.setAuditCountExact = function(key, val) {
+  const entry = auditSession.entries.find(e => e.key === key);
+  if (!entry) return;
+
+  if (val === '' || val === null) {
+    entry.isCounted = false;
+    entry.countedQty = 0;
+  } else {
+    entry.isCounted = true;
+    entry.countedQty = Math.max(0, parseInt(val, 10) || 0);
+  }
+
+  saveAuditSession();
+  updateAuditStats();
+  updateAuditCardDOM(entry);
+};
+
+window.matchAuditBook = function(key) {
+  const entry = auditSession.entries.find(e => e.key === key);
+  if (!entry) return;
+
+  entry.countedQty = entry.bookQty;
+  entry.isCounted = true;
+
+  saveAuditSession();
+  updateAuditStats();
+  updateAuditCardDOM(entry);
+  playSuccessBeep();
+  showToast(`Potrjeno: ${entry.sku} = ${entry.bookQty} kos`);
+};
+
+function handleAuditScan(skuInput) {
+  const cleanSku = String(skuInput).trim().replace(/\D/g, '').substring(0, 7) || String(skuInput).trim();
+  const entries = auditSession.entries || [];
+
+  // Poišči vse postavke s tem SKU
+  let matches = entries.filter(e => e.sku === cleanSku || e.sku.includes(cleanSku));
+  if (matches.length === 0) {
+    showToast(`Artikel s šifro "${skuInput}" ni bil najden.`);
+    return;
+  }
+
+  // Če je aktiven filter regala, zožimo
+  const activeShelf = auditSession.shelfFilter || 'all';
+  if (activeShelf !== 'all') {
+    const shelfMatches = matches.filter(e => e.locName.toLowerCase() === activeShelf.toLowerCase());
+    if (shelfMatches.length > 0) {
+      matches = shelfMatches;
+    }
+  }
+
+  const target = matches[0];
+  window.changeAuditCount(target.key, 1);
+
+  // Pomakni se do kartice in jo označi
+  const card = document.getElementById(`auditCard_${escapeHtml(target.key)}`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.style.outline = '2px solid #38bdf8';
+    setTimeout(() => { card.style.outline = ''; }, 1200);
+  }
+
+  playSuccessBeep();
+  showToast(`➕ Prešteto +1: ${target.name} (${target.countedQty} kos)`);
+}
+
+async function resetAuditSession() {
+  if (confirm('Ali res želite ponastaviti popis? Vse preštete vrednosti se bodo izbrisale.')) {
+    localStorage.removeItem(AUDIT_STORAGE_KEY);
+    await loadAuditSession(true);
+    showToast('Inventurni popis ponastavljen.');
+  }
+}
+
+async function applyAuditToInventory() {
+  const entries = auditSession.entries || [];
+  if (entries.length === 0) {
+    showToast('Ni postavk za uveljavitev.');
+    return;
+  }
+
+  const countedEntries = entries.filter(e => e.isCounted);
+  if (countedEntries.length === 0) {
+    showToast('Še niste prešteli nobene postavke.');
+    return;
+  }
+
+  const diffEntries = countedEntries.filter(e => e.countedQty !== e.bookQty);
+  const uncountedCount = entries.filter(e => !e.isCounted).length;
+
+  if (diffEntries.length === 0) {
+    showToast('Vse preštete postavke se ujemajo s knjižno zalogo. Spremembe niso potrebne.');
+    return;
+  }
+
+  let confirmMsg = `Uveljavitev inventurnega popisa:\n\n` +
+    `• Število postavk z odstopanjem: ${diffEntries.length}\n` +
+    `• Preštetih brez razlik: ${countedEntries.length - diffEntries.length}\n`;
+
+  if (uncountedCount > 0) {
+    confirmMsg += `• Še nepreštetih: ${uncountedCount} (njihova zaloga se NE bo spreminjala)\n`;
+  }
+  confirmMsg += `\nAli želite uveljaviti novo stanje v zalogo? To bo zabeleženo v dnevnik premikov.`;
+
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    showToast('Uskaljujem zalogo...');
+    const result = await DB.applyAuditResults(entries);
+
+    showToast(`✅ Zaloga uspešno usklajena! Posodobljenih ${result.totalAdjustments} postavk.`);
+    playSuccessBeep();
+
+    // Počistimo sejo in naložimo sveže podatke
+    localStorage.removeItem(AUDIT_STORAGE_KEY);
+    await refreshInventory();
+    await refreshLogs();
+    await loadAuditSession(true);
+  } catch (err) {
+    console.error('Napaka pri uveljavljanju inventure:', err);
+    showToast('Napaka pri uveljavljanju: ' + err.message);
+  }
+}
+
+async function exportAuditPDF() {
+  try {
+    showToast('Pripravljam PDF zapisnik inventure...');
+    if (!auditSession.entries || auditSession.entries.length === 0) {
+      await loadAuditSession();
+    }
+    const entries = auditSession.entries || [];
+    if (entries.length === 0) {
+      showToast('Ni podatkov za izpis.');
+      return;
+    }
+
+    if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+      showToast('jsPDF knjižnica ni na voljo.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 12;
+    const contentWidth = pageWidth - (margin * 2); // 186mm
+
+    let currentPage = 1;
+    let y = 14;
+
+    const activeShelf = auditSession.shelfFilter || 'all';
+    const filteredEntries = (activeShelf === 'all')
+      ? entries
+      : entries.filter(e => (e.locName || '').toLowerCase() === activeShelf.toLowerCase());
+
+    const totalPositions = filteredEntries.length;
+    const countedPositions = filteredEntries.filter(e => e.isCounted).length;
+    const matchPositions = filteredEntries.filter(e => e.isCounted && e.countedQty === e.bookQty).length;
+    const diffPositions = filteredEntries.filter(e => e.isCounted && e.countedQty !== e.bookQty).length;
+
+    let totalDeficit = 0;
+    let totalSurplus = 0;
+    filteredEntries.forEach(e => {
+      if (e.isCounted) {
+        const d = e.countedQty - e.bookQty;
+        if (d < 0) totalDeficit += Math.abs(d);
+        if (d > 0) totalSurplus += d;
+      }
+    });
+
+    function drawHeader() {
+      // Header pas
+      doc.setFillColor(15, 23, 42); // #0f172a
+      doc.rect(margin, y, contentWidth, 23, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('INVENTURNI ZAPISNIK SKLADISCA', margin + 6, y + 9);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(148, 163, 184);
+      const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
+      const shelfText = (activeShelf === 'all') ? 'Vsi regali' : activeShelf;
+      doc.text(`Uradni popis zaloge | Datum: ${nowStr} | Lokacija: ${shelfText}`, margin + 6, y + 16);
+
+      y += 27;
+
+      // Povzetek v glavi
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 10, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 10, 'S');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.6);
+      doc.setTextColor(30, 41, 59);
+
+      const colW = contentWidth / 5;
+      doc.text(`POZICIJ: ${totalPositions}`, margin + 4, y + 6.5);
+      doc.text(`PRESTETO: ${countedPositions}/${totalPositions}`, margin + colW + 2, y + 6.5);
+      doc.text(`USKLAJENO: ${matchPositions}`, margin + (colW * 2) + 2, y + 6.5);
+      doc.setTextColor(185, 28, 28);
+      doc.text(`MANJKO: -${totalDeficit} kos`, margin + (colW * 3) + 2, y + 6.5);
+      doc.setTextColor(217, 119, 6);
+      doc.text(`VISEK: +${totalSurplus} kos`, margin + (colW * 4) + 2, y + 6.5);
+
+      y += 14;
+
+      // Glava tabele
+      doc.setFillColor(30, 41, 59);
+      doc.rect(margin, y, contentWidth, 8, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+
+      doc.text('CRTNA KODA & SIFRA', margin + 3, y + 5.5);
+      doc.text('NAZIV ARTIKLA', margin + 46, y + 5.5);
+      doc.text('SKATLA', margin + 104, y + 5.5);
+      doc.text('REGAL / LOKACIJA', margin + 120, y + 5.5);
+      doc.text('KNJIZNO', margin + 152, y + 5.5);
+      doc.text('PRESTETO', margin + 167, y + 5.5);
+      doc.text('RAZLIKA', margin + 184, y + 5.5, { align: 'right' });
+
+      y += 9;
+    }
+
+    function drawFooter(pageNo) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Skladisce PWA - Inventurni zapisnik - Stran ${pageNo}`, margin, pageHeight - 8);
+    }
+
+    drawHeader();
+
+    let rowIndex = 0;
+    for (const entry of filteredEntries) {
+      const rowHeight = 15;
+      if (y + rowHeight > pageHeight - 28) {
+        drawFooter(currentPage);
+        doc.addPage();
+        currentPage++;
+        y = 14;
+        drawHeader();
+      }
+
+      const isDiff = entry.isCounted && (entry.countedQty !== entry.bookQty);
+      if (isDiff) {
+        doc.setFillColor(254, 242, 242);
+        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+      } else if (rowIndex % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+      }
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margin, y + rowHeight - 1, margin + contentWidth, y + rowHeight - 1);
+
+      // Črtna koda
+      const barcodeData = generateBarcodeDataUrl(entry.sku);
+      if (barcodeData) {
+        doc.addImage(barcodeData, 'PNG', margin + 2, y, 38, 12);
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(entry.sku), margin + 3, y + 7);
+      }
+
+      // Naziv
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      const cleanName = (entry.name || '').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
+      doc.text(cleanName.substring(0, 32), margin + 46, y + 6);
+
+      // Škatla
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${entry.boxNum}/${entry.boxTotal}`, margin + 104, y + 6);
+
+      // Regal / Lokacija
+      const cleanLoc = (entry.locName || 'Brez lokacije').replace(/[\u010d\u010c]/g, 'c').replace(/[\u0161\u0160]/g, 's').replace(/[\u017e\u017d]/g, 'z');
+      doc.text(cleanLoc.substring(0, 18), margin + 120, y + 6);
+
+      // Knjižno
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${entry.bookQty}`, margin + 154, y + 6);
+
+      // Prešteto
+      doc.setFont('helvetica', 'bold');
+      if (!entry.isCounted) {
+        doc.setTextColor(148, 163, 184);
+        doc.text('-', margin + 169, y + 6);
+      } else {
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${entry.countedQty}`, margin + 169, y + 6);
+      }
+
+      // Razlika
+      if (!entry.isCounted) {
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(148, 163, 184);
+        doc.text('Nepresteto', margin + 184, y + 6, { align: 'right' });
+      } else {
+        const diff = entry.countedQty - entry.bookQty;
+        if (diff === 0) {
+          doc.setTextColor(16, 185, 129);
+          doc.text('0', margin + 184, y + 6, { align: 'right' });
+        } else if (diff < 0) {
+          doc.setTextColor(220, 38, 38);
+          doc.text(`${diff}`, margin + 184, y + 6, { align: 'right' });
+        } else {
+          doc.setTextColor(217, 119, 6);
+          doc.text(`+${diff}`, margin + 184, y + 6, { align: 'right' });
+        }
+      }
+
+      y += rowHeight;
+      rowIndex++;
+    }
+
+    // Podpisna komisija na dnu
+    if (y + 35 > pageHeight - 16) {
+      drawFooter(currentPage);
+      doc.addPage();
+      currentPage++;
+      y = 20;
+    } else {
+      y += 8;
+    }
+
+    doc.setFillColor(248, 250, 252);
+    doc.rect(margin, y, contentWidth, 24, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(margin, y, contentWidth, 24, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 41, 59);
+    doc.text('POTRDITEV INVENTURNE KOMISIJE:', margin + 4, y + 5.5);
+
+    const sigW = contentWidth / 3;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+
+    doc.text('Vodja komisije: ____________________', margin + 4, y + 17);
+    doc.text('Clan komisije: ____________________', margin + sigW + 4, y + 17);
+    doc.text('Vodja skladisca: ____________________', margin + (sigW * 2) + 4, y + 17);
+
+    drawFooter(currentPage);
+
+    const fileName = `Inventurni_zapisnik_${getDateStamp()}.pdf`;
+    downloadFile(doc.output('blob'), fileName, 'application/pdf');
+    showToast('Inventurni zapisnik PDF uspesno prenesen!');
+  } catch (err) {
+    console.error('Napaka pri generiranju inventurnega PDF:', err);
+    showToast('Napaka pri PDF: ' + err.message);
+  }
 }
 
 /* =========================================================================

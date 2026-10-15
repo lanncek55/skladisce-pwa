@@ -827,5 +827,99 @@ const DB = {
     if (!existing2) {
       await this.addItem(diverses);
     }
+  },
+
+  /**
+   * Uveljavi rezultate inventurnega popisa v IndexedDB (posodobi zalogo postavk in zabeleži v dnevnik logs)
+   * @param {Array} auditEntries - Seznam { itemId, boxNum, locName, bookQty, countedQty, isCounted }
+   */
+  async applyAuditResults(auditEntries) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['items', 'logs'], 'readwrite');
+      const itemStore = tx.objectStore('items');
+      const logStore = tx.objectStore('logs');
+
+      const getReq = itemStore.getAll();
+      getReq.onsuccess = () => {
+        const allItems = getReq.result || [];
+        const itemMap = new Map();
+        allItems.forEach(i => itemMap.set(i.id, normalizeItemBoxes(i)));
+
+        let modifiedItemsCount = 0;
+        let totalAdjustments = 0;
+        const modifiedItemIds = new Set();
+
+        for (const entry of auditEntries) {
+          if (!entry.isCounted) continue;
+          const book = Number(entry.bookQty) || 0;
+          const counted = Math.max(0, Number(entry.countedQty) || 0);
+          const diff = counted - book;
+          if (diff === 0) continue;
+
+          const item = itemMap.get(Number(entry.itemId));
+          if (!item) continue;
+
+          const bNum = Number(entry.boxNum) || 1;
+          if (!item.boxes[bNum]) continue;
+
+          const bObj = item.boxes[bNum];
+          const locs = bObj.locations || [];
+          const cleanLoc = String(entry.locName || '').trim().toLowerCase();
+          const targetLoc = locs.find(l => l.name.trim().toLowerCase() === cleanLoc);
+
+          if (targetLoc) {
+            targetLoc.count = counted;
+          } else if (locs.length > 0) {
+            locs[0].count = counted;
+          } else {
+            locs.push({
+              name: entry.locName || item.location || 'Brez lokacije',
+              count: counted,
+              isPrimary: true
+            });
+          }
+
+          // Posodobi seštevek škatle in lokacije
+          item.boxes[bNum] = normalizeBoxLocations(bObj, entry.locName || item.location || 'Brez lokacije');
+
+          // Preračun celih kompletov
+          const stats = this.getBoxStats(item);
+          item.quantity = stats.completeSets;
+          item.lastUpdated = new Date().toISOString();
+
+          logStore.add({
+            itemId: item.id,
+            sku: item.sku,
+            itemName: item.name,
+            changeType: 'audit',
+            changeAmount: diff,
+            resultingQty: item.quantity,
+            note: `Inventura: Škatla ${bNum}/${item.boxTotal} (${entry.locName || 'Privzeta lokacija'}) knjižno ${book} -> prešteto ${counted} (razlika: ${diff > 0 ? '+' : ''}${diff})`,
+            timestamp: new Date().toISOString()
+          });
+
+          modifiedItemIds.add(item.id);
+          totalAdjustments++;
+        }
+
+        // Shranimo posodobljene artikle
+        modifiedItemIds.forEach(id => {
+          const item = itemMap.get(id);
+          if (item) {
+            itemStore.put(item);
+            modifiedItemsCount++;
+          }
+        });
+
+        tx.oncomplete = () => resolve({
+          success: true,
+          modifiedItemsCount,
+          totalAdjustments
+        });
+        tx.onerror = () => reject(tx.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
   }
 };

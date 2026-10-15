@@ -165,7 +165,79 @@
       </div>
     </section>
 
-    <!-- ZAVIHEK 3: DNEVNIK PREMIKOV -->
+    <!-- ZAVIHEK 3: INVENTURNI POPIS (AUDIT) -->
+    <section id="tab-audit" class="tab-content" style="display: none; padding: 16px;">
+      <!-- Naslov z orodno vrstico -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+        <div>
+          <h2 style="font-size: 1.15rem; margin-bottom: 2px;">Inventura zaloge</h2>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">Popis stanja, primerjava in uskladitev</div>
+        </div>
+        <button class="chip" id="btnResetAuditSession" title="Začni nov popis iz trenutne zaloge" style="display: flex; align-items: center; gap: 4px; border-color: rgba(239, 68, 68, 0.4); color: #f87171;">
+          <span>🔄</span> Resetiraj popis
+        </button>
+      </div>
+
+      <!-- Hitra statistika popisa -->
+      <div class="audit-stats-grid">
+        <div class="audit-stat-card">
+          <div class="audit-stat-label">Pozicij</div>
+          <div class="audit-stat-val" id="auditStatTotal">0</div>
+        </div>
+        <div class="audit-stat-card">
+          <div class="audit-stat-label">Prešteto</div>
+          <div class="audit-stat-val" id="auditStatCounted">0</div>
+        </div>
+        <div class="audit-stat-card">
+          <div class="audit-stat-label">Usklajeno</div>
+          <div class="audit-stat-val success" id="auditStatMatch">0</div>
+        </div>
+        <div class="audit-stat-card">
+          <div class="audit-stat-label">Odstopanja</div>
+          <div class="audit-stat-val warning" id="auditStatDiff">0</div>
+        </div>
+      </div>
+
+      <!-- Filtri in izbira regala -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); min-width: 65px;">Regal:</label>
+          <select id="auditShelfFilter" class="form-control" style="padding: 8px 12px; font-weight: 600; font-size: 0.9rem;">
+            <option value="all">📍 Vsi regali (Celotno skladišče)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="auditScanInput" class="form-control" placeholder="Skeniraj ali vpiši 7-mestno šifro..." style="padding: 9px 12px; font-size: 0.9rem;">
+          <button class="btn-primary" id="btnAuditQuickCount" style="margin: 0; width: auto; padding: 0 14px; white-space: nowrap; font-size: 0.85rem;" title="Dodaj +1 kos">➕ Štej (+1)</button>
+        </div>
+
+        <!-- Filter statusa -->
+        <div id="auditFilterChips" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
+          <button class="chip active" data-audit-filter="all">Vse postavke</button>
+          <button class="chip" data-audit-filter="diff">⚠️ Samo odstopanja</button>
+          <button class="chip" data-audit-filter="uncounted">⚪ Še neprešteto</button>
+          <button class="chip" data-audit-filter="match">✓ Usklajeno</button>
+        </div>
+      </div>
+
+      <!-- Seznam postavk za štetje -->
+      <div id="auditItemsList" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 80px;">
+        <!-- Dinamične inventurne kartice -->
+      </div>
+
+      <!-- Pripeta spodnja vrstica z akcijami -->
+      <div class="audit-action-bar">
+        <button class="btn-secondary" id="btnExportAuditPDF" style="margin: 0; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.88rem; padding: 12px;">
+          <span>📄</span> PDF Zapisnik
+        </button>
+        <button class="btn-primary" id="btnApplyAudit" style="margin: 0; flex: 1.3; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.88rem; padding: 12px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
+          <span>✅</span> Uskladi zalogo
+        </button>
+      </div>
+    </section>
+
+    <!-- ZAVIHEK 4: DNEVNIK PREMIKOV -->
     <section id="tab-history" class="tab-content" style="display: none; padding: 16px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
         <h2 style="font-size: 1.1rem;">Zgodovina premikov</h2>
@@ -176,7 +248,7 @@
       </div>
     </section>
 
-    <!-- ZAVIHEK 4: NASTAVITVE & PODATKI -->
+    <!-- ZAVIHEK 5: NASTAVITVE & PODATKI -->
     <section id="tab-settings" class="tab-content" style="display: none; padding: 16px;">
       <h2 style="font-size: 1.1rem; margin-bottom: 14px;">Varnostno kopiranje & Sinhronizacija</h2>
 
@@ -244,7 +316,14 @@
         <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
         <line x1="12" y1="22.08" x2="12" y2="12"></line>
       </svg>
-      <span>Škatle (OCR)</span>
+      <span>Škatle</span>
+    </button>
+    <button class="nav-tab" data-tab="tab-audit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 11l3 3L22 4"></path>
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+      </svg>
+      <span>Inventura</span>
     </button>
     <button class="nav-tab" data-tab="tab-history">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

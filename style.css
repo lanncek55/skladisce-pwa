@@ -1248,4 +1248,149 @@ body {
   box-shadow: none;
 }
 
+/* ==========================================================================
+   MODUL INVENTURE (STOCKTAKING AUDIT)
+   ========================================================================== */
+.audit-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+@media (max-width: 520px) {
+  .audit-stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.audit-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  text-align: center;
+}
+.audit-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.audit-stat-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.audit-stat-val.success { color: var(--success); }
+.audit-stat-val.warning { color: var(--warning); }
+.audit-stat-val.critical { color: var(--danger); }
+
+.audit-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+.audit-card.status-match {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.03);
+}
+.audit-card.status-diff {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.04);
+}
+.audit-card.status-uncounted {
+  border-color: var(--border);
+}
+
+.audit-counter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.audit-counter-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-audit-step {
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  color: #fff;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-audit-step:hover {
+  background: var(--primary);
+  color: #0b0f19;
+}
+.audit-count-input {
+  width: 55px;
+  height: 34px;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  color: #fff;
+  border-radius: 6px;
+}
+.audit-diff-badge {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.audit-diff-badge.match {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.audit-diff-badge.surplus {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.audit-diff-badge.deficit {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.audit-diff-badge.uncounted {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+
+.audit-action-bar {
+  position: sticky;
+  bottom: calc(64px + var(--safe-bottom) + 8px);
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+}
+
 
