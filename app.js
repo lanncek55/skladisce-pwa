@@ -2473,7 +2473,44 @@ function getDateStamp() {
   return d.toISOString().slice(0, 10);
 }
 
-function downloadFile(content, fileName, mimeType) {
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function downloadFile(content, fileName, mimeType) {
+  // Če tečemo v Capacitor APK (Android)
+  if (isCapacitorNative() && window.Capacitor?.Plugins?.NativeFileSaver) {
+    try {
+      showToast('Shranjujem v Prenose (Downloads)...');
+      let base64 = '';
+      if (content instanceof Blob) {
+        base64 = await blobToBase64(content);
+      } else if (typeof content === 'string') {
+        const textBlob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8;' });
+        base64 = await blobToBase64(textBlob);
+      }
+
+      await window.Capacitor.Plugins.NativeFileSaver.saveAndOpenFile({
+        fileName: fileName,
+        base64: base64,
+        mimeType: mimeType || 'application/pdf'
+      });
+
+      showToast(`📁 Uspešno shranjeno v Prenose: ${fileName}`);
+      playSuccessBeep();
+      return;
+    } catch (e) {
+      console.warn('NativeFileSaver napaka:', e);
+      showToast('Napaka pri shranjevanju: ' + (e.message || e));
+    }
+  }
+
+  // Spletni način (PWA v brskalniku)
   const blob = (content instanceof Blob) ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2482,6 +2519,6 @@ function downloadFile(content, fileName, mimeType) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
