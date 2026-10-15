@@ -40,7 +40,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 8. Takojšnje prednalaganje nevronskega OCR pospeševalnika v ozadju
   initOCRWorker();
 
-  // 9. Naloži podatke iz IndexedDB
+  // 9. Samodejno čiščenje in združevanje morebitnih podvojenih artiklov (Deduplikacija)
+  try {
+    const dedup = await DB.deduplicateItems();
+    if (dedup && dedup.removedDuplicatesCount > 0) {
+      console.log(`✓ Deduplikacija: Združenih ${dedup.mergedGroupsCount} skupin, odstranjenih ${dedup.removedDuplicatesCount} dvojnikov.`);
+    }
+  } catch (err) {
+    console.warn('Deduplikacija ob zagonu:', err);
+  }
+
+  // 10. Naloži podatke iz IndexedDB
   await refreshInventory();
 });
 
@@ -486,8 +496,12 @@ function setupModals() {
         await DB.updateItem(itemData);
         showToast('Artikel uspešno posodobljen.');
       } else {
-        await DB.addItem(itemData);
-        showToast('Nov artikel dodan v zalogo.');
+        const res = await DB.addItem(itemData);
+        if (res && res.wasMerged) {
+          showToast('Artikel s to šifro že obstaja – zaloga in lokacije so bile uspešno združene!');
+        } else {
+          showToast('Nov artikel dodan v zalogo.');
+        }
       }
       modalItem.style.display = 'none';
       await refreshInventory();
@@ -1924,7 +1938,7 @@ window.executeBoxStockChange = async function(direction) {
       };
     }
 
-    const newId = await DB.addItem({
+    const res = await DB.addItem({
       sku: sku || 'ART-' + Math.floor(1000 + Math.random() * 9000),
       name: chosenName,
       quantity: 0,
@@ -1937,6 +1951,7 @@ window.executeBoxStockChange = async function(direction) {
       category: 'Splošno',
       location: boxLocation || 'Prevzemno območje'
     });
+    const newId = (typeof res === 'object' && res.id) ? res.id : res;
     item = await DB.getItemById(newId);
   } else if (item.name !== chosenName) {
     item.name = chosenName;
@@ -2792,6 +2807,26 @@ function setupSettingsAndBackup() {
       showToast('Zgodovina očiščena.');
     }
   });
+
+  // Ročno sprožena deduplikacija (združitev dvojnikov)
+  const btnDeduplicate = document.getElementById('btnDeduplicate');
+  if (btnDeduplicate) {
+    btnDeduplicate.addEventListener('click', async () => {
+      try {
+        showToast('Preverjam dvojnike v bazi...');
+        const res = await DB.deduplicateItems();
+        if (res.removedDuplicatesCount > 0) {
+          showToast(`🧹 Uspešno združeni ${res.mergedGroupsCount} artikli (odstranjenih ${res.removedDuplicatesCount} dvojnikov)!`);
+        } else {
+          showToast('✓ V bazi ni nobenih podvojenih artiklov.');
+        }
+        await refreshInventory();
+      } catch (err) {
+        console.error('Napaka pri deduplikaciji:', err);
+        showToast('Napaka pri preverjanju dvojnikov: ' + err.message);
+      }
+    });
+  }
 
   // Izvoz v CSV
   document.getElementById('btnExportCSV').addEventListener('click', async () => {

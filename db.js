@@ -253,7 +253,192 @@ const DB = {
     });
   },
 
+  mergeItemObjects(baseItem, incomingItem) {
+    const base = normalizeItemBoxes(baseItem);
+    const inc = normalizeItemBoxes(incomingItem);
+
+    const maxBoxTotal = Math.max(1, base.boxTotal || 1, inc.boxTotal || 1);
+    base.boxTotal = maxBoxTotal;
+
+    if ((!base.name || base.name.startsWith('Artikel ') || base.name.startsWith('Neznan')) && inc.name && !inc.name.startsWith('Artikel ')) {
+      base.name = inc.name;
+    }
+    if ((!base.category || base.category === 'Splošno') && inc.category && inc.category !== 'Splošno') {
+      base.category = inc.category;
+    }
+    if (inc.piecesPerBox && (!base.piecesPerBox || base.piecesPerBox === 1)) {
+      base.piecesPerBox = inc.piecesPerBox;
+    }
+    if (inc.unit && (!base.unit || base.unit === 'kos')) {
+      base.unit = inc.unit;
+    }
+    if (inc.notes) {
+      base.notes = base.notes ? (base.notes.includes(inc.notes) ? base.notes : `${base.notes} | ${inc.notes}`) : inc.notes;
+    }
+
+    if (!base.boxes) base.boxes = {};
+    const boxCounts = [];
+
+    for (let b = 1; b <= maxBoxTotal; b++) {
+      const bBase = base.boxes[b] || { count: 0, location: base.location || 'Brez lokacije', locations: [] };
+      const bInc = inc.boxes?.[b] || null;
+
+      const normBase = normalizeBoxLocations(bBase, base.location || 'Brez lokacije');
+      let combinedLocations = [...normBase.locations];
+
+      if (bInc) {
+        const normInc = normalizeBoxLocations(bInc, inc.location || 'Brez lokacije');
+        for (const incLoc of normInc.locations) {
+          const locNameClean = String(incLoc.name || 'Brez lokacije').trim().toLowerCase();
+          const matchLoc = combinedLocations.find(l => String(l.name || '').trim().toLowerCase() === locNameClean);
+          if (matchLoc) {
+            // Posodobi ali seštej količino na tej lokaciji
+            matchLoc.count = Math.max(0, (Number(matchLoc.count) || 0) + (Number(incLoc.count) || 0));
+          } else {
+            combinedLocations.push({
+              name: incLoc.name,
+              count: Math.max(0, Number(incLoc.count) || 0),
+              isPrimary: combinedLocations.length === 0
+            });
+          }
+        }
+      }
+
+      const totalBoxCount = combinedLocations.reduce((sum, l) => sum + (Number(l.count) || 0), 0);
+      let summaryLoc = '';
+      if (combinedLocations.length <= 1) {
+        summaryLoc = combinedLocations[0]?.name || 'Brez lokacije';
+      } else {
+        summaryLoc = combinedLocations.map(l => `${l.name} (${l.count} kos)`).join(' / ');
+      }
+
+      base.boxes[b] = {
+        count: totalBoxCount,
+        location: summaryLoc,
+        locations: combinedLocations
+      };
+      boxCounts.push(totalBoxCount);
+    }
+
+    base.quantity = (maxBoxTotal > 1) ? Math.min(...boxCounts) : (boxCounts[0] || 0);
+    base.location = base.boxes[1]?.location || base.location || 'Brez lokacije';
+    base.lastUpdated = new Date().toISOString();
+
+    return base;
+  },
+
+  async deduplicateItems() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['items', 'logs'], 'readwrite');
+      const itemStore = tx.objectStore('items');
+      const logStore = tx.objectStore('logs');
+
+      const getAllReq = itemStore.getAll();
+      const getLogsReq = logStore.getAll();
+
+      let items = [];
+      let logs = [];
+      let ready = 0;
+
+      const processDeduplication = () => {
+        ready++;
+        if (ready < 2) return;
+
+        const skuGroups = new Map();
+        for (const it of items) {
+          const rawSku = String(it.sku || '').trim().toLowerCase();
+          if (!rawSku) continue;
+
+          if (!skuGroups.has(rawSku)) {
+            skuGroups.set(rawSku, []);
+          }
+          skuGroups.get(rawSku).push(it);
+        }
+
+        let mergedGroupsCount = 0;
+        let removedDuplicatesCount = 0;
+        const affectedSkus = [];
+
+        for (const [sku, group] of skuGroups.entries()) {
+          if (group.length <= 1) continue;
+
+          // Uredi po ID naraščajoče: najstarejši zapis ostane primarni
+          group.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+          const primary = group[0];
+          const duplicates = group.slice(1);
+
+          for (const dup of duplicates) {
+            DB.mergeItemObjects(primary, dup);
+            itemStore.delete(Number(dup.id));
+            removedDuplicatesCount++;
+
+            // Dnevnik premikov preusmeri na primarni artikel
+            logs.forEach(l => {
+              if (Number(l.itemId) === Number(dup.id)) {
+                l.itemId = primary.id;
+                logStore.put(l);
+              }
+            });
+          }
+
+          itemStore.put(primary);
+          mergedGroupsCount++;
+          affectedSkus.push(primary.sku || sku);
+        }
+
+        tx.oncomplete = () => {
+          resolve({
+            mergedGroupsCount,
+            removedDuplicatesCount,
+            affectedSkus
+          });
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+
+      getAllReq.onsuccess = () => {
+        items = getAllReq.result || [];
+        processDeduplication();
+      };
+      getAllReq.onerror = () => reject(getAllReq.error);
+
+      getLogsReq.onsuccess = () => {
+        logs = getLogsReq.result || [];
+        processDeduplication();
+      };
+      getLogsReq.onerror = () => reject(getLogsReq.error);
+    });
+  },
+
   async addItem(item) {
+    const cleanSku = String(item.sku || '').trim();
+
+    // Preprečevanje podvajanja: če artikel s to šifro (SKU) že obstaja, združi zalogo in škatle
+    if (cleanSku) {
+      const existing = await this.getItemBySKU(cleanSku);
+      if (existing) {
+        const merged = this.mergeItemObjects(existing, item);
+        await this.updateItem(merged);
+
+        const db = await openDB();
+        const tx = db.transaction('logs', 'readwrite');
+        const logStore = tx.objectStore('logs');
+        logStore.add({
+          itemId: merged.id,
+          sku: merged.sku,
+          itemName: merged.name,
+          changeType: 'in',
+          changeAmount: Number(item.quantity) || 0,
+          resultingQty: merged.quantity,
+          note: `Združitev ob ponovnem vnosu (${item.boxInfo || 'Box 1/1'})`,
+          timestamp: new Date().toISOString()
+        });
+
+        return { id: merged.id, wasMerged: true };
+      }
+    }
+
     const db = await openDB();
     const parsed = parseBoxInfo(item.boxInfo);
     const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
@@ -303,7 +488,7 @@ const DB = {
           note: `Začetni vnos (${itemData.boxInfo}, lokacija: ${itemData.location})`,
           timestamp: new Date().toISOString()
         });
-        resolve(newId);
+        resolve({ id: newId, wasMerged: false });
       };
       req.onerror = () => reject(req.error);
     });
