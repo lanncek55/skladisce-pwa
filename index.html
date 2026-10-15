@@ -22,12 +22,18 @@
   <!-- Glava Aplikacije -->
   <header class="app-header">
     <div class="logo-area">
-      <div class="logo-icon">📦</div>
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+      </div>
       <div class="app-title">Skladišče</div>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
-      <button class="btn-sync-header" id="btnHeaderBLESync" title="Brezžična BLE sinhronizacija z delavcem (brez interneta)">
-        <span>📡</span> Uskladi
+      <button class="btn-sync-header" id="btnHeaderBLESync" title="Sinhronizacija zaloge prek Bluetootha">
+        Sinhronizacija
       </button>
       <div id="connectionStatus" class="offline-pill online">
         <span class="dot"></span>
@@ -60,16 +66,16 @@
       <!-- Hitri PDF izpisi zaloge, konsolidacija in pomoč pri izdaji -->
       <div class="pdf-quick-bar">
         <button type="button" class="btn-pdf-pill" id="btnQuickPdfComplete" onclick="exportCompleteSetsPDF()" title="Prenesi PDF s popolnimi kompleti">
-          <span>📄</span> PDF Popolni kompleti
+          Popolni kompleti (PDF)
         </button>
         <button type="button" class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" onclick="exportIncompleteSetsPDF()" title="Prenesi PDF z nepopolnimi škatlami">
-          <span>⚠️</span> PDF Nepopolne škatle
+          Nepopolne škatle (PDF)
         </button>
         <button type="button" class="btn-pdf-pill" id="btnOpenConsolidation" onclick="openConsolidationModal()" style="border-color: rgba(168, 85, 247, 0.4); color: #c084fc; background: rgba(168, 85, 247, 0.12);" title="Pregled in združevanje razpršenih škatel">
-          <span>🧹</span> Konsolidacija (<span id="consolidationBadge">0</span>)
+          Konsolidacija (<span id="consolidationBadge">0</span>)
         </button>
-        <button type="button" class="btn-pdf-pill" id="btnQuickDispatch" onclick="showReceiptDispatchPicker()" style="border-color: #f59e0b; color: #fbbf24;" title="Odpri pomoč pri izdaji blaga po računu">
-          <span>🧾</span> Pomoč pri izdaji (Račun)
+        <button type="button" class="btn-pdf-pill" id="btnQuickDispatch" onclick="showReceiptDispatchPicker()" style="border-color: #f59e0b; color: #fbbf24;" title="Izdaja blaga po računu">
+          Izdaja po računu
         </button>
       </div>
 
@@ -79,16 +85,16 @@
           <span class="live-pulse-dot" style="background: #10b981; width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
           <div>
             <div style="font-weight: 700; font-size: 0.88rem; color: #fff;" id="receivingBannerTitle">
-              📥 Prevzem pošiljke (V teku)
+              Prevzem pošiljke
             </div>
             <div style="font-size: 0.74rem; color: var(--text-muted);" id="receivingBannerSub">
-              Prevzeto: 0 škatel &bull; Novo kompletiranih: 0
+              Prevzeto: 0 škatel &bull; Kompletirano: 0
             </div>
           </div>
         </div>
         <div style="display: flex; gap: 6px; align-items: center;">
-          <button type="button" class="btn-sm-action" onclick="openReceivingArchiveModal()" style="background: rgba(255, 255, 255, 0.08); color: #cbd5e1; border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-weight: 600; font-size: 0.75rem; cursor: pointer;" title="Odpri arhiv preteklih prevzemov">
-            📚 Arhiv
+          <button type="button" class="btn-sm-action" onclick="openReceivingArchiveModal()" style="background: rgba(255, 255, 255, 0.08); color: #cbd5e1; border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-weight: 600; font-size: 0.75rem; cursor: pointer;" title="Arhiv preteklih prevzemov">
+            Arhiv
           </button>
           <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" onclick="handleReceivingBannerClick()" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
             Pregled in zaključek
@@ -107,14 +113,13 @@
         </div>
         <div class="filter-chips" id="categoryChips">
           <button class="chip active" data-filter="all">Vse</button>
-          <button class="chip" data-filter="low">⚠️ Nizka zaloga</button>
+          <button class="chip" data-filter="low">Nizka zaloga</button>
         </div>
       </div>
 
       <!-- Seznam artiklov -->
       <div class="items-list" id="itemsList">
         <div class="empty-box">
-          <div class="empty-icon">📦</div>
           <p>Nalaganje zaloge...</p>
         </div>
       </div>
@@ -126,9 +131,9 @@
     <!-- ZAVIHEK 2: OPTIČNI ČITALNIK ŠKATEL (OCR) -->
     <section id="tab-scanner" class="tab-content scanner-section">
       <div style="text-align: center; margin-bottom: 6px;">
-        <h2 style="font-size: 1.15rem; font-weight: 700;">Optično branje škatel</h2>
+        <h2 style="font-size: 1.15rem; font-weight: 700;">Skeniranje škatel</h2>
         <p style="font-size: 0.78rem; color: var(--text-muted);">
-          Pametno branje etiket s pomočjo nevronske mreže (ime, šifra artikla, box X/Y, količina)
+          Skeniranje etiket artiklov in škatel
         </p>
       </div>
 
@@ -141,7 +146,7 @@
             <span class="live-pulse-dot"></span>
             <span id="autoScanStatusText">SAMODEJNO BRANJE: VKLOP</span>
           </button>
-          <span id="scanLiveIndicator" class="scan-state-pill">🔍 Iščem škatlo...</span>
+          <span id="scanLiveIndicator" class="scan-state-pill">Pripravljeno</span>
         </div>
         <div class="scanner-overlay">
           <div class="scan-frame box-frame" id="scanFrameBox">
@@ -150,14 +155,14 @@
             <div class="frame-corner top-right"></div>
             <div class="frame-corner bottom-left"></div>
             <div class="frame-corner bottom-right"></div>
-            <div class="frame-label" id="frameLabelText">Usmeri v etiketo (pokončno ali obrnjeno)</div>
+            <div class="frame-label" id="frameLabelText">Usmeri kamero v etiketo</div>
           </div>
         </div>
-        <!-- Nalagalnik obdelave (TPU / Nevronska mreža) -->
+        <!-- Nalagalnik obdelave -->
         <div id="ocrLoadingOverlay" class="ocr-loading-overlay" style="display: none;">
           <div class="spinner"></div>
           <div id="ocrLoadingText" style="font-weight: 600; font-size: 0.9rem; margin-top: 10px;">
-            ⚡ Branje škatle s TPU pospeševanjem...
+            Obdelava slike...
           </div>
         </div>
       </div>
@@ -165,19 +170,19 @@
       <!-- Glavni kontrolni gumbi -->
       <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
         <button class="btn-secondary" id="btnCaptureOCR" style="margin-top:0; font-size: 0.92rem; padding: 10px; border-color: rgba(56, 189, 248, 0.4); color: var(--primary);">
-          📸 Prisili ročni zajem (opcijsko)
+          Ročni zajem slike
         </button>
 
         <div style="display: flex; gap: 8px;">
           <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display: none;">
           <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin-top:0; flex: 1;">
-            🖼️ Izberi sliko iz galerije
+            Izberi sliko iz galerije
           </button>
         </div>
 
         <!-- Gumb za pomoč pri izdaji po računu -->
-        <button class="btn-primary" id="btnReceiptDispatchTrigger" style="margin-top: 4px; background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; color: #fff; font-weight: 700; font-size: 0.95rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);">
-          <span>🧾</span> POMOČ PRI IZDAJI (SKENIRAJ RAČUN KUPCA)
+        <button class="btn-primary" id="btnReceiptDispatchTrigger" style="margin-top: 4px; background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; color: #fff; font-weight: 700; font-size: 0.92rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          Izdaja blaga po računu
         </button>
       </div>
 
@@ -205,7 +210,7 @@
           <div style="font-size: 0.78rem; color: var(--text-muted);">Popis stanja, primerjava in uskladitev</div>
         </div>
         <button class="chip" id="btnResetAuditSession" title="Začni nov popis iz trenutne zaloge" style="display: flex; align-items: center; gap: 4px; border-color: rgba(239, 68, 68, 0.4); color: #f87171;">
-          <span>🔄</span> Resetiraj popis
+          Ponastavi popis
         </button>
       </div>
 
@@ -234,21 +239,21 @@
         <div style="display: flex; gap: 8px; align-items: center;">
           <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); min-width: 65px;">Regal:</label>
           <select id="auditShelfFilter" class="form-control" style="padding: 8px 12px; font-weight: 600; font-size: 0.9rem;">
-            <option value="all">📍 Vsi regali (Celotno skladišče)</option>
+            <option value="all">Vsi regali</option>
           </select>
         </div>
 
         <div style="display: flex; gap: 8px;">
           <input type="text" id="auditScanInput" class="form-control" placeholder="Skeniraj ali vpiši 7-mestno šifro..." style="padding: 9px 12px; font-size: 0.9rem;">
-          <button class="btn-primary" id="btnAuditQuickCount" style="margin: 0; width: auto; padding: 0 14px; white-space: nowrap; font-size: 0.85rem;" title="Dodaj +1 kos">➕ Štej (+1)</button>
+          <button class="btn-primary" id="btnAuditQuickCount" style="margin: 0; width: auto; padding: 0 14px; white-space: nowrap; font-size: 0.85rem;" title="Dodaj +1 kos">Štej (+1)</button>
         </div>
 
         <!-- Filter statusa -->
         <div id="auditFilterChips" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
           <button class="chip active" data-audit-filter="all">Vse postavke</button>
-          <button class="chip" data-audit-filter="diff">⚠️ Samo odstopanja</button>
-          <button class="chip" data-audit-filter="uncounted">⚪ Še neprešteto</button>
-          <button class="chip" data-audit-filter="match">✓ Usklajeno</button>
+          <button class="chip" data-audit-filter="diff">Samo odstopanja</button>
+          <button class="chip" data-audit-filter="uncounted">Neprešteto</button>
+          <button class="chip" data-audit-filter="match">Usklajeno</button>
         </div>
       </div>
 
@@ -260,10 +265,10 @@
       <!-- Pripeta spodnja vrstica z akcijami -->
       <div class="audit-action-bar">
         <button class="btn-secondary" id="btnExportAuditPDF" style="margin: 0; flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.88rem; padding: 12px;">
-          <span>📄</span> PDF Zapisnik
+          PDF zapisnik
         </button>
-        <button class="btn-primary" id="btnApplyAudit" style="margin: 0; flex: 1.3; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.88rem; padding: 12px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
-          <span>✅</span> Uskladi zalogo
+        <button class="btn-primary" id="btnApplyAudit" style="margin: 0; flex: 1.3; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.88rem; padding: 12px;">
+          Potrdi in uskladi zalogo
         </button>
       </div>
     </section>
@@ -281,50 +286,47 @@
 
     <!-- ZAVIHEK 5: NASTAVITVE & PODATKI -->
     <section id="tab-settings" class="tab-content" style="display: none; padding: 16px;">
-      <h2 style="font-size: 1.1rem; margin-bottom: 14px;">Varnostno kopiranje & Sinhronizacija</h2>
+      <h2 style="font-size: 1.1rem; margin-bottom: 14px;">Podatki in nastavitve</h2>
 
       <!-- Brezžična BLE sinhronizacija -->
-      <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(2, 132, 199, 0.08)); border: 1.5px solid rgba(56, 189, 248, 0.4); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-          <span style="font-size: 1.4rem;">📡</span>
-          <h3 style="font-size: 1.05rem; margin: 0; color: #fff;">Brezžična BLE sinhronizacija (brez interneta)</h3>
-        </div>
-        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.4;">
-          Uskladite zalogo z delavcem v kleti brez parjenja in brez wifija. Vse izdane škatle se <strong>samodejno zmanjšajo</strong>, novi artikli pa dodajo v 1–2 sekundah.
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+        <h3 style="font-size: 0.95rem; margin: 0 0 6px 0; color: #fff;">Bluetooth sinhronizacija</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+          Neposredna uskladitev zaloge med napravama prek Bluetooth povezave.
         </p>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <button class="btn-primary" id="btnOpenBLESend" style="margin: 0; padding: 12px; font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <span>🚀</span> Pošlji zalogo
+          <button class="btn-primary" id="btnOpenBLESend" style="margin: 0; padding: 11px; font-weight: 600; font-size: 0.86rem;">
+            Pošlji zalogo
           </button>
-          <button class="btn-secondary" id="btnOpenBLEReceive" style="margin: 0; padding: 12px; font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 6px; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8;">
-            <span>📥</span> Prejmi zalogo
+          <button class="btn-secondary" id="btnOpenBLEReceive" style="margin: 0; padding: 11px; font-weight: 600; font-size: 0.86rem; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8;">
+            Prejmi zalogo
           </button>
         </div>
       </div>
 
       <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
-        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Izvoz podatkov</h3>
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Poročila in izvoz podatkov</h3>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-          Podatke lahko shranite za odpiranje v Excelu ali naredite popolno varnostno kopijo.
+          Izpis skladiščnih poročil v PDF formatu, izvoz v CSV ter varnostna kopija baze.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <button type="button" class="btn-secondary" id="btnPdfComplete" onclick="exportCompleteSetsPDF()" style="margin-top:0; border-color: rgba(56, 189, 248, 0.4); color: var(--primary); text-align: left; padding: 12px;">
-            📄 Prenesi PDF: Popolni kompleti (Zaloga s črtno kodo)
+            Popolni kompleti (PDF)
           </button>
           <button type="button" class="btn-secondary" id="btnPdfIncomplete" onclick="exportIncompleteSetsPDF()" style="margin-top:0; border-color: rgba(245, 158, 11, 0.4); color: var(--warning); text-align: left; padding: 12px;">
-            ⚠️ Prenesi PDF: Nepopolne škatle (Manjkajoči deli s črtno kodo)
+            Nepopolne škatle (PDF)
           </button>
           <button type="button" class="btn-secondary" onclick="openConsolidationModal()" style="margin-top:0; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; text-align: left; padding: 12px;">
-            🧹 Konsolidacija zaloge (Združevanje razpršenih škatel)
+            Konsolidacija zaloge po regalih
           </button>
           <button type="button" class="btn-secondary" onclick="openReceivingArchiveModal()" style="margin-top:0; border-color: rgba(16, 185, 129, 0.4); color: #34d399; text-align: left; padding: 12px;">
-            📚 Arhiv in PDF poročila preteklih prevzemov
+            Arhiv preteklih prevzemov
           </button>
           <button type="button" class="btn-secondary" id="btnExportCSV" style="margin-top:0; text-align: left; padding: 12px;">
-            📊 Izvozi zalogo v Excel (CSV)
+            Izvoz zaloge v CSV (Excel)
           </button>
           <button type="button" class="btn-secondary" id="btnExportJSON" style="margin-top:0; text-align: left; padding: 12px;">
-            💾 Prenesi varnostno kopijo (JSON)
+            Varnostna kopija podatkov (JSON)
           </button>
         </div>
       </div>
@@ -332,45 +334,45 @@
       <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
         <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Uvoz podatkov</h3>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-          Obnovite podatke iz predhodno shranjene varnostne kopije JSON.
+          Obnovitev podatkov iz varnostne kopije JSON.
         </p>
         <input type="file" id="importFileInput" accept=".json" style="display: none;">
-        <button class="btn-secondary" id="btnTriggerImport" style="margin-top:0;">📂 Naloži varnostno kopijo (JSON)</button>
+        <button class="btn-secondary" id="btnTriggerImport" style="margin-top:0;">Uvozi varnostno kopijo (JSON)</button>
       </div>
 
       <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
-        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Čiščenje dvojnikov (Deduplikacija)</h3>
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Združevanje dvojnikov</h3>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-          Preveri bazo in samodejno združi vse artikle z isto šifro (SKU) v en sam zapis, sešteje njihove škatle in ohrani vse lokacije na regalih.
+          Združi podvojene zapise z enako šifro artikla (SKU) in ohrani lokacije po regalih.
         </p>
         <button class="btn-secondary" id="btnDeduplicate" style="margin-top:0; border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-          🧹 Preveri in združi podvojene artikle
+          Združi podvojene artikle
         </button>
       </div>
 
       <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
-        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Hitri zagon & Testni podatki</h3>
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Testni podatki</h3>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-          Naložite vzorčne artikle (vijaki, škatle, rokavice), da takoj preizkusite aplikacijo.
+          Naloži vzorčne artikle v bazo.
         </p>
-        <button class="btn-secondary" id="btnLoadDemo">⚡ Naloži vzorčne demo artikle</button>
+        <button class="btn-secondary" id="btnLoadDemo">Naloži vzorčne artikle</button>
       </div>
 
-      <!-- Nevarno območje: Izbris vseh artiklov -->
-      <div style="background: rgba(239, 68, 68, 0.08); border: 1.5px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
-        <h3 style="font-size: 0.95rem; margin-bottom: 6px; color: #ef4444; display: flex; align-items: center; gap: 6px;">
-          <span>🗑️</span> Izbris vseh artiklov (Počisti bazo)
+      <!-- Izbris vseh artiklov -->
+      <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px; color: #ef4444;">
+          Izbris celotne zaloge
         </h3>
         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
-          Odstrani vse artikle in njihove zaloge po regalih iz skladišča. Uporabite to možnost, če želite počistiti testne demo artikle ali začeti znova s prazno bazo.
+          Odstrani vse artikle in zaloge po regalih iz baze.
         </p>
-        <button type="button" class="btn-secondary" id="btnClearAllItems" style="margin-top:0; border-color: rgba(239, 68, 68, 0.6); color: #ef4444; background: rgba(239, 68, 68, 0.1); font-weight: 700;">
-          🗑️ Izbriši vse artikle in zalogo
+        <button type="button" class="btn-secondary" id="btnClearAllItems" style="margin-top:0; border-color: rgba(239, 68, 68, 0.6); color: #ef4444; background: rgba(239, 68, 68, 0.1); font-weight: 600;">
+          Izbriši vse artikle
         </button>
       </div>
 
-      <div style="font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 24px;">
-        Skladišče PWA v1.0.0 &bull; 100% Offline IndexedDB &bull; Brez strežniške odvisnosti
+      <div style="font-size: 0.75rem; color: var(--text-dim); text-align: center; margin-top: 24px;">
+        Skladišče v1.2
       </div>
     </section>
 
@@ -434,7 +436,7 @@
           <label class="form-label" for="itemSku">Številka artikla (prvih 7 števk) *</label>
           <div style="display: flex; gap: 8px;">
             <input type="text" id="itemSku" class="form-control" placeholder="npr. 3725150 ali 3651003" required>
-            <button type="button" class="btn-secondary" id="btnGenSku" style="margin-top:0; width:auto; padding: 0 12px;" title="Ustvari avtomatsko šifro">🎲</button>
+            <button type="button" class="btn-secondary" id="btnGenSku" style="margin-top:0; width:auto; padding: 0 12px; font-size: 0.8rem;" title="Ustvari avtomatsko šifro">Generiraj</button>
           </div>
         </div>
 
@@ -456,8 +458,8 @@
 
         <!-- Dinamične lokacije posameznih škatel -->
         <div id="modalBoxLocationsContainer" style="display: none; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px;">
-          <div style="font-size: 0.82rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-            <span>📦</span> Lokacije in število posameznih škatel:
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--primary); margin-bottom: 8px;">
+            Lokacije in število posameznih škatel:
           </div>
           <div id="modalBoxRows" style="display: flex; flex-direction: column; gap: 8px;"></div>
         </div>
@@ -553,10 +555,10 @@
       <div class="modal-header" style="border-bottom: 1px solid var(--border); padding-bottom: 10px;">
         <div>
           <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--primary); font-weight: 800; letter-spacing: 0.5px;">
-            Vodenje po skladišču &bull; Izdaja kupcu
+            Izdaja blaga po računu
           </div>
-          <h3 class="modal-title" id="dispatchReceiptTitle" style="display: flex; align-items: center; gap: 8px; font-size: 1.18rem; margin-top: 2px;">
-            🧾 Pomoč pri izdaji blaga
+          <h3 class="modal-title" id="dispatchReceiptTitle" style="font-size: 1.15rem; margin-top: 2px;">
+            Izdaja blaga
           </h3>
         </div>
         <button type="button" class="btn-close" id="btnCloseReceiptDispatch">&times;</button>
@@ -592,7 +594,7 @@
       <div class="modal-footer" style="padding-top: 10px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: space-between; margin-top: 6px;">
         <button type="button" class="btn-secondary" id="btnCancelDispatch" style="margin: 0; width: auto; padding: 10px 16px;">Zapri</button>
         <button type="button" class="btn-primary" id="btnFinishDispatch" style="margin: 0; flex: 1; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;" disabled>
-          🎉 Vse pobrano &mdash; Zaključi izdajo
+          Zaključi izdajo
         </button>
       </div>
     </div>
@@ -602,10 +604,7 @@
   <div class="modal-backdrop" id="modalBLESync" style="display: none;">
     <div class="modal-dialog">
       <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 1.4rem;">📡</span>
-          <h3 class="modal-title" id="bleSyncTitle">BLE Sinhronizacija</h3>
-        </div>
+        <h3 class="modal-title" id="bleSyncTitle">Bluetooth sinhronizacija</h3>
         <button class="btn-close" id="btnCloseBLESyncModal">&times;</button>
       </div>
 
@@ -614,14 +613,14 @@
         <div class="ble-radar-pulse" id="bleRadarPulse">
           <div class="ble-radar-circle"></div>
           <div class="ble-radar-circle"></div>
-          <div class="ble-radar-icon" id="bleRadarIcon">📡</div>
+          <div class="ble-radar-icon" id="bleRadarIcon" style="font-size: 0.9rem; font-weight: 700;">BLE</div>
         </div>
 
         <h4 id="bleSyncStatusTitle" style="font-size: 1.05rem; margin-bottom: 6px; color: #fff;">
           Pripravljam povezavo...
         </h4>
         <p id="bleSyncStatusDesc" style="font-size: 0.82rem; color: var(--text-muted); max-width: 280px; margin-bottom: 14px;">
-          Sodelavec naj na svojem telefonu odpre sinhronizacijo.
+          Druga naprava naj odpre sinhronizacijo.
         </p>
 
         <!-- Povzetek uspeha (prikazan ob zaključku) -->
@@ -642,10 +641,7 @@
   <div class="modal-backdrop" id="modalMoveStock" style="display: none;">
     <div class="modal-dialog">
       <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.3rem;">🔀</span>
-          <h3 class="modal-title">Premestitev med regali</h3>
-        </div>
+        <h3 class="modal-title">Premestitev med regali</h3>
         <button type="button" class="btn-close" id="btnCloseMoveStockModal">&times;</button>
       </div>
       <form id="formMoveStock">
@@ -657,7 +653,7 @@
         </div>
 
         <div class="form-group" id="moveBoxSelectGroup" style="display: none;">
-          <label class="form-label" for="moveBoxNum">Katero škatlo premikaš?</label>
+          <label class="form-label" for="moveBoxNum">Škatla za premestitev</label>
           <select id="moveBoxNum" class="form-control"></select>
         </div>
 
@@ -686,7 +682,7 @@
         <div style="display: flex; gap: 8px; margin-top: 14px;">
           <button type="button" class="btn-secondary" id="btnCancelMoveStock" style="margin: 0; flex: 1;">Prekliči</button>
           <button type="submit" class="btn-primary" style="margin: 0; flex: 2; background: linear-gradient(135deg, #38bdf8, #0284c7);">
-            🔀 Potrdi premestitev
+            Potrdi premestitev
           </button>
         </div>
       </form>
@@ -697,12 +693,9 @@
   <div class="modal-backdrop" id="modalReceivingBatch" style="display: none;">
     <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
       <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.3rem;">📥</span>
-          <div>
-            <h3 class="modal-title" id="receivingModalTitle">Prevzem pošiljke</h3>
-            <div style="font-size:0.75rem; color:var(--text-muted);" id="receivingModalDate">Začetek prevzema: danes</div>
-          </div>
+        <div>
+          <h3 class="modal-title" id="receivingModalTitle">Prevzem pošiljke</h3>
+          <div style="font-size:0.75rem; color:var(--text-muted);" id="receivingModalDate">Začetek prevzema: danes</div>
         </div>
         <button type="button" class="btn-close" id="btnCloseReceivingModal">&times;</button>
       </div>
@@ -714,32 +707,32 @@
           <div style="font-size: 1.25rem; font-weight: 800; color: #fff;" id="recStatTotalBoxes">0</div>
         </div>
         <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 8px; text-align: center;">
-          <div style="font-size: 0.7rem; color: #10b981; font-weight: 600;">🎉 Kompletirano</div>
+          <div style="font-size: 0.7rem; color: #10b981; font-weight: 600;">Kompletirano</div>
           <div style="font-size: 1.25rem; font-weight: 800; color: #10b981;" id="recStatCompleted">0</div>
         </div>
         <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px; text-align: center;">
-          <div style="font-size: 0.7rem; color: #fbbf24; font-weight: 600;">⚠️ Primanjkljaj</div>
+          <div style="font-size: 0.7rem; color: #fbbf24; font-weight: 600;">Primanjkljaj</div>
           <div style="font-size: 1.25rem; font-weight: 800; color: #fbbf24;" id="recStatMissing">0</div>
         </div>
       </div>
 
-      <!-- Jasno obvestilo o ločenosti prevzemov od izdaj -->
-      <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 7px 10px; margin: 8px 0; font-size: 0.76rem; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-        <span>ℹ️</span> <span><strong>Zabeleženi so izključno prevzemi blaga.</strong> Morebitne vmesne izdaje kupcem so ločene in ne vplivajo na to pošiljko.</span>
+      <!-- Obvestilo o ločenosti prevzemov od izdaj -->
+      <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 7px 10px; margin: 8px 0; font-size: 0.75rem; color: #38bdf8;">
+        Vključeni so samo prevzemi blaga (vmesne izdaje ne vplivajo na obračun pošiljke).
       </div>
 
       <!-- Seznam kompletiranih artiklov -->
       <div id="recCompletedSection" style="margin-top: 10px;">
-        <div style="font-size: 0.8rem; font-weight: 700; color: #10b981; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-          <span>🎉</span> Novo kompletirane garniture (dopolnjene s staro zalogo):
+        <div style="font-size: 0.8rem; font-weight: 700; color: #10b981; margin-bottom: 6px;">
+          Novo kompletirane garniture:
         </div>
         <div id="recCompletedList" style="display: flex; flex-direction: column; gap: 6px;"></div>
       </div>
 
       <!-- Seznam primanjkljajev / nepopolnih škatel -->
       <div id="recMissingSection" style="margin-top: 14px;">
-        <div style="font-size: 0.8rem; font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-          <span>⚠️</span> Primanjkljaji v tej pošiljki (nepopolne škatle):
+        <div style="font-size: 0.8rem; font-weight: 700; color: #fbbf24; margin-bottom: 6px;">
+          Primanjkljaji v tej pošiljki (nepopolne škatle):
         </div>
         <div id="recMissingList" style="display: flex; flex-direction: column; gap: 6px;"></div>
       </div>
@@ -747,7 +740,7 @@
       <!-- Seznam vseh prevzetih škatel -->
       <div style="margin-top: 14px;">
         <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
-          📦 Seznam vseh prevzetih postavk v tej pošiljki:
+          Prevzete postavke v tej pošiljki:
         </div>
         <div id="recAllReceivedList" style="display: flex; flex-direction: column; gap: 5px; max-height: 180px; overflow-y: auto;"></div>
       </div>
@@ -755,18 +748,18 @@
       <!-- Gumbi za izvoz in zaključek -->
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border);">
         <button type="button" class="btn-primary" id="btnExportReceivingPDF" onclick="exportReceivingPDF()" style="margin: 0; background: linear-gradient(135deg, #38bdf8, #0284c7);">
-          📄 Prenesi PDF zapisnik prevzema
+          Prenesi PDF zapisnik prevzema
         </button>
         <div style="display: flex; gap: 8px;">
           <button type="button" class="btn-secondary" id="btnKeepReceiving" style="margin: 0; flex: 1;">
             Nadaljuj s prevzemom
           </button>
           <button type="button" class="btn-secondary" id="btnFinishReceivingSession" style="margin: 0; flex: 1; border-color: rgba(16, 185, 129, 0.5); color: #10b981;">
-            ✓ Zaključi pošiljko
+            Zaključi pošiljko
           </button>
         </div>
         <button type="button" class="btn-secondary" onclick="openReceivingArchiveModal()" style="margin: 0; padding: 10px; font-size: 0.82rem; border-color: rgba(255,255,255,0.15); color: var(--text-muted);">
-          📚 Odpri arhiv preteklih zaključenih pošiljk
+          Arhiv preteklih pošiljk
         </button>
       </div>
     </div>
@@ -776,28 +769,20 @@
   <div class="modal-backdrop" id="modalConsolidation" style="display: none;">
     <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
       <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.3rem;">🧹</span>
-          <div>
-            <h3 class="modal-title">Konsolidacija zaloge</h3>
-            <div style="font-size:0.75rem; color:var(--text-muted);">Združevanje razpršenih škatel na enotne regale</div>
-          </div>
+        <div>
+          <h3 class="modal-title">Konsolidacija zaloge</h3>
+          <div style="font-size:0.75rem; color:var(--text-muted);">Združevanje razpršenih škatel na enotne regale</div>
         </div>
         <button type="button" class="btn-close" id="btnCloseConsolidationModal" onclick="closeConsolidationModal()">&times;</button>
-      </div>
-
-      <!-- Info kartica -->
-      <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.8rem; color: #e9d5ff; line-height: 1.4;">
-        ℹ️ Spodaj so zbrani artikli, katerih škatle ležijo na različnih regalih v skladišču. Z enim klikom premaknite razpršene kose na ciljni regal, da bodo vsi sestavni deli kompleta zbrani skupaj.
       </div>
 
       <!-- Gumbi za izvoz in osvežitev -->
       <div style="display: flex; gap: 8px; margin-bottom: 12px;">
         <button type="button" class="btn-primary" onclick="exportConsolidationPDF()" style="margin: 0; flex: 2; background: linear-gradient(135deg, #a855f7, #7c3aed); font-size: 0.82rem; padding: 10px;">
-          📄 Prenesi delovni nalog (PDF)
+          Prenesi delovni nalog (PDF)
         </button>
         <button type="button" class="btn-secondary" onclick="renderConsolidationList()" style="margin: 0; flex: 1; font-size: 0.82rem; padding: 10px;">
-          🔄 Osveži
+          Osveži
         </button>
       </div>
 
@@ -810,18 +795,11 @@
   <div class="modal-backdrop" id="modalReceivingArchive" style="display: none;">
     <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
       <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:1.3rem;">📚</span>
-          <div>
-            <h3 class="modal-title">Arhiv prevzemnih pošiljk</h3>
-            <div style="font-size:0.75rem; color:var(--text-muted);">Zgodovina zaključenih prevzemov in PDF zapisniki</div>
-          </div>
+        <div>
+          <h3 class="modal-title">Arhiv prevzemnih pošiljk</h3>
+          <div style="font-size:0.75rem; color:var(--text-muted);">Zgodovina zaključenih prevzemov in PDF zapisniki</div>
         </div>
         <button type="button" class="btn-close" id="btnCloseReceivingArchiveModal" onclick="closeReceivingArchiveModal()">&times;</button>
-      </div>
-
-      <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.8rem; color: #bae6fd; line-height: 1.4;">
-        ℹ️ Tu so shranjene vse pretekle zaključene pošiljke. Za vsako lahko kadarkoli ponovno prenesete uraden PDF zapisnik z vsemi podatki in primanjkljaji ali si ogledate seznam prevzetih škatel.
       </div>
 
       <!-- Seznam arhiviranih pošiljk -->

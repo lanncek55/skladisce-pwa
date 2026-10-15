@@ -183,7 +183,7 @@ function updateCategoryChips() {
   // Ohrani prva dva ("Vse" in "Nizka zaloga")
   let html = `
     <button class="chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">Vse</button>
-    <button class="chip ${currentFilter === 'low' ? 'active' : ''}" data-filter="low">⚠️ Nizka zaloga</button>
+    <button class="chip ${currentFilter === 'low' ? 'active' : ''}" data-filter="low">Nizka zaloga</button>
   `;
 
   categories.forEach(cat => {
@@ -217,7 +217,6 @@ function renderItemsList() {
   if (filtered.length === 0) {
     listEl.innerHTML = `
       <div class="empty-box">
-        <div class="empty-icon">🔍</div>
         <p>Ni najdenih artiklov.</p>
         ${cachedItems.length === 0 ? '<button class="btn-secondary" onclick="loadDemoData()" style="max-width:220px;">Naloži testne artikle</button>' : ''}
       </div>
@@ -249,14 +248,14 @@ function renderItemsList() {
       boxBreakdownHtml = `
         <div class="box-breakdown-container" onclick="openEditModal('${escapeHtml(item.sku)}')">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 2px;">
-            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">📦 ${stats.boxTotal} škatle na garnituro:</span>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${stats.boxTotal} škatle na garnituro:</span>
             ${stats.hasIncomplete 
-              ? `<span class="badge-incomplete">⚠️ ${escapeHtml(stats.missingSummary)}</span>` 
-              : `<span class="badge-complete">✓ Celi kompleti (${stats.completeSets})</span>`}
+              ? `<span class="badge-incomplete">${escapeHtml(stats.missingSummary)}</span>` 
+              : `<span class="badge-complete">Celi kompleti (${stats.completeSets})</span>`}
           </div>
           ${stats.breakdown.map(b => `
             <div class="box-breakdown-row">
-              <span>Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">📍 ${escapeHtml(b.location)}</span></span>
+              <span>Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">${escapeHtml(b.location)}</span></span>
               <span class="box-breakdown-count">${b.count} kos</span>
             </div>
           `).join('')}
@@ -271,8 +270,8 @@ function renderItemsList() {
             <div class="item-name">${escapeHtml(item.name)}</div>
             <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
               <span class="item-sku-badge"># ${escapeHtml(item.sku)}</span>
-              ${item.location ? `<span class="item-location">📍 ${escapeHtml(item.location)}</span>` : ''}
-              ${stats.boxTotal > 1 ? `<span class="item-location" style="color:var(--primary); font-weight:600;">📦 ${stats.boxTotal}-delni komplet</span>` : ''}
+              ${item.location ? `<span class="item-location">${escapeHtml(item.location)}</span>` : ''}
+              ${stats.boxTotal > 1 ? `<span class="item-location" style="color:var(--primary); font-weight:600;">${stats.boxTotal}-delni komplet</span>` : ''}
             </div>
           </div>
           <span class="stock-status-badge ${statusClass}">${statusText}</span>
@@ -286,7 +285,7 @@ function renderItemsList() {
             <span class="qty-unit">${escapeHtml(item.unit || (stats.boxTotal > 1 ? 'kompletov' : 'kos'))}</span>
           </div>
           <div class="quick-actions">
-            <button class="btn-qty btn-move" onclick="event.stopPropagation(); openMoveModal('${escapeHtml(item.sku)}')" title="Premakni med regali">🔀</button>
+            <button class="btn-qty btn-move" onclick="event.stopPropagation(); openMoveModal('${escapeHtml(item.sku)}')" title="Premakni med regali" style="font-size: 0.72rem; padding: 0 8px; width: auto;">Regal</button>
             <button class="btn-qty" onclick="openStockChangeModal('${escapeHtml(item.sku)}', 'out')" title="Izdaj blago">-</button>
             <button class="btn-qty" onclick="openStockChangeModal('${escapeHtml(item.sku)}', 'in')" title="Prevzemi blago">+</button>
           </div>
@@ -334,10 +333,10 @@ function renderModalBoxInputs(item) {
       <div class="modal-box-group" data-box="${b}" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm); padding: 8px 10px; display:flex; flex-direction:column; gap:6px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span style="font-size: 0.82rem; font-weight: 700; color: var(--primary);">
-            📦 Škatla ${b}/${boxTotal}
+            Škatla ${b}/${boxTotal}
           </span>
           <button type="button" onclick="addModalShelfRow(${b})" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 0.72rem; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 700;">
-            ➕ Dodaj drug regal (preliv)
+            + Dodaj drug regal (preliv)
           </button>
         </div>
         <div class="modal-box-shelves-container" id="modalBoxShelves_${b}" style="display:flex; flex-direction:column; gap:5px;">
@@ -496,7 +495,7 @@ function setupModals() {
       } else {
         const res = await DB.addItem(itemData);
         if (res && res.wasMerged) {
-          showToast('Artikel s to šifro že obstaja – zaloga in lokacije so bile uspešno združene!');
+          showToast('Artikel s to šifro že obstaja – zaloga in lokacije so bile združene.');
         } else {
           showToast('Nov artikel dodan v zalogo.');
         }
@@ -551,7 +550,7 @@ function setupModals() {
         await DB.adjustStock(itemId, delta, note, direction);
         if (navigator.vibrate) navigator.vibrate(60);
         modalStockChange.style.display = 'none';
-        showToast(direction === 'in' ? `Prevzem +${amount} uspešno zabeležen` : `Izdaja -${amount} uspešno zabeležena`);
+        showToast(direction === 'in' ? `Prevzem +${amount} zabeležen` : `Izdaja -${amount} zabeležena`);
         await refreshInventory();
       } catch (err) {
         console.error(err);
@@ -590,7 +589,7 @@ function setupModals() {
         await DB.moveStock(sku, boxNum, fromShelf, toShelf, amount, note);
         if (navigator.vibrate) navigator.vibrate(60);
         modalMoveStock.style.display = 'none';
-        showToast(`🔀 Uspešno premaknjeno ${amount} škatel (${fromShelf} ➔ ${toShelf})`);
+        showToast(`Premaknjeno ${amount} škatel (${fromShelf} -> ${toShelf})`);
         await refreshInventory();
         if (typeof renderConsolidationList === 'function' && document.getElementById('modalConsolidation')?.style.display === 'flex') {
           await renderConsolidationList();
@@ -699,11 +698,11 @@ window.openStockChangeModal = async function(id, direction) {
   const btn = document.getElementById('btnConfirmStockChange');
 
   if (direction === 'in') {
-    title.textContent = '📥 Prevzem v skladišče';
+    title.textContent = 'Prevzem v skladišče';
     label.textContent = 'Količina prevzema (+)';
     btn.textContent = 'Potrdi prevzem';
   } else {
-    title.textContent = '📤 Izdaja iz skladišča';
+    title.textContent = 'Izdaja iz skladišča';
     label.textContent = 'Količina izdaje (-)';
     btn.textContent = 'Potrdi izdajo';
   }
@@ -855,7 +854,7 @@ function startReceivingSession(customName = '') {
     entries: [] // Array<{ id, timestamp, sku, name, boxNum, boxTotal, shelf, count }>
   };
   saveActiveReceivingSession(session);
-  showToast(`📥 Prevzem pošiljke "${session.name}" je zagnan.`);
+  showToast(`Prevzem pošiljke "${session.name}" je zagnan.`);
   return session;
 }
 
@@ -907,7 +906,7 @@ async function recordReceivingEntry(sku, name, boxNum, boxTotal, shelf, count) {
 
   if (newCompleted > prevCompleted) {
     const diff = newCompleted - prevCompleted;
-    showToast(`🎉 KOMPLETIRANO! +${diff} nov komplet artikla "${name}" (dopolnjeno s predhodno zalogo)!`);
+    showToast(`Kompletirano: +${diff} komplet artikla "${name}" (dopolnjeno s predhodno zalogo).`);
   }
 }
 
@@ -1028,17 +1027,17 @@ function updateReceivingBannerUI() {
         totalCompleted += res.completedFromOld;
       }
 
-      title.innerHTML = `📥 Prevzem: <strong>${escapeHtml(session.name)}</strong> <span style="font-size:0.75rem; color:#10b981; font-weight:normal;">(V teku)</span>`;
-      sub.innerHTML = `Prevzeto: <strong>${totalBoxes}</strong> škatel &bull; Novo kompletiranih: <strong style="color:#10b981;">${totalCompleted}</strong>`;
-      btn.textContent = '🏁 Pregled in zaključek';
+      title.innerHTML = `Prevzem: <strong>${escapeHtml(session.name)}</strong> <span style="font-size:0.75rem; color:#10b981; font-weight:normal;">(v teku)</span>`;
+      sub.innerHTML = `Prevzeto: <strong>${totalBoxes}</strong> škatel &bull; Kompletirano: <strong style="color:#10b981;">${totalCompleted}</strong>`;
+      btn.textContent = 'Pregled in zaključek';
       btn.style.background = '#10b981';
     } else {
       banner.style.display = 'flex';
       banner.style.background = 'rgba(255, 255, 255, 0.03)';
       banner.style.borderColor = 'var(--border)';
-      title.innerHTML = `📦 Prevzemna pošiljka <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(Ni aktivna)</span>`;
-      sub.innerHTML = `Začnite večdnevni prevzem za spremljanje kompletiranja in manjkajočih delov.`;
-      btn.textContent = '▶ Začni nov prevzem';
+      title.innerHTML = `Prevzemna pošiljka <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(ni aktivna)</span>`;
+      sub.innerHTML = `Spremljanje prevzema blaga, kompletiranja in primanjkljajev.`;
+      btn.textContent = 'Začni nov prevzem';
       btn.style.background = 'var(--primary)';
     }
   } catch (err) {
@@ -1126,7 +1125,7 @@ window.openReceivingModal = function() {
     const compListEl = document.getElementById('recCompletedList');
     if (compListEl) {
       if (completedItems.length === 0) {
-        compListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki nobena garnitura ni bila na novo dopolnjena iz predhodne zaloge.</div>`;
+        compListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); padding:6px 0;">Ni dopolnjenih garnitur iz predhodne zaloge.</div>`;
       } else {
         compListEl.innerHTML = completedItems.map(c => `
           <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
@@ -1146,7 +1145,7 @@ window.openReceivingModal = function() {
     const missListEl = document.getElementById('recMissingList');
     if (missListEl) {
       if (missingItems.length === 0) {
-        missListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">Vsi večdelni artikli v tej pošiljki so prispeli v enakih količinah (brez primanjkljajev).</div>`;
+        missListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); padding:6px 0;">Brez primanjkljajev v tej pošiljki.</div>`;
       } else {
         missListEl.innerHTML = missingItems.map(m => `
           <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 8px 10px;">
@@ -1155,7 +1154,7 @@ window.openReceivingModal = function() {
               <span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;"># ${escapeHtml(m.sku)}</span>
             </div>
             <div style="font-size: 0.76rem; color: #fbbf24;">
-              ${m.missing.map(x => `⚠️ Manjka ${x.missingCount}x Škatla ${x.boxNum}/${x.boxTotal} (prevzeto le ${x.receivedCount} kos)`).join('<br>')}
+              ${m.missing.map(x => `Manjka ${x.missingCount}x Škatla ${x.boxNum}/${x.boxTotal} (prevzeto: ${x.receivedCount} kos)`).join('<br>')}
             </div>
           </div>
         `).join('');
@@ -1166,7 +1165,7 @@ window.openReceivingModal = function() {
     const allListEl = document.getElementById('recAllReceivedList');
     if (allListEl) {
       if (entries.length === 0) {
-        allListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki še ni prevzetih postavk.</div>`;
+        allListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); padding:6px 0;">Ni prevzetih postavk.</div>`;
       } else {
         allListEl.innerHTML = entries.slice().reverse().map(e => `
           <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 0.78rem;">
@@ -1191,7 +1190,7 @@ window.finishReceivingSession = function() {
   const session = getActiveReceivingSession();
   if (!session) return;
 
-  if (confirm(`Ali ste prepričani, da želite ZAKLJUČITI prevzem pošiljke "${session.name}"?\n\n(Priporočamo, da pred zaključkom prenesete PDF poročilo).`)) {
+  if (confirm(`Ali želite zaključiti prevzem pošiljke "${session.name}"?`)) {
     try {
       const historyKey = 'skladisce_receiving_history';
       const hist = JSON.parse(localStorage.getItem(historyKey) || '[]');
@@ -1231,7 +1230,7 @@ window.finishReceivingSession = function() {
     localStorage.removeItem(RECEIVING_SESSION_KEY);
     document.getElementById('modalReceivingBatch').style.display = 'none';
     updateReceivingBannerUI();
-    showToast(`✓ Prevzem pošiljke "${session.name}" je uspešno zaključen in arhiviran.`);
+    showToast(`Prevzem pošiljke "${session.name}" je zaključen in arhiviran.`);
   }
 };
 
@@ -1357,7 +1356,7 @@ window.exportReceivingPDF = function(customSession = null) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Skladisce PWA - Zapisnik prevzema posiljke - Stran ${pageNo}`, margin, pageHeight - 6);
+    doc.text(`Skladisce - Zapisnik prevzema posiljke - Stran ${pageNo}`, margin, pageHeight - 6);
   }
 
   function checkPageBreak(neededHeight) {
@@ -1549,7 +1548,7 @@ window.exportReceivingPDF = function(customSession = null) {
   const cleanFileTitle = stripSlo(session.name).replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeFilename = `Prevzem_${cleanFileTitle}_${new Date().toISOString().slice(0, 10)}.pdf`;
   downloadFile(doc.output('blob'), safeFilename, 'application/pdf');
-  showToast(`📄 PDF poročilo prevzema "${safeFilename}" je uspešno shranjeno.`);
+  showToast(`PDF poročilo "${safeFilename}" je shranjeno.`);
 };
 
 /* =========================================================================
@@ -1600,11 +1599,10 @@ window.renderConsolidationList = async function() {
 
     if (scattered.length === 0) {
       listEl.innerHTML = `
-        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 24px 16px; text-align: center;">
-          <div style="font-size: 2.2rem; margin-bottom: 8px;">🎉</div>
-          <h4 style="font-size: 1.05rem; color: #10b981; margin-bottom: 4px;">Vse je popolnoma urejeno!</h4>
+        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 20px 16px; text-align: center;">
+          <h4 style="font-size: 1rem; color: #10b981; margin-bottom: 4px;">Zaloga je usklajena</h4>
           <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">
-            Noben artikel v skladišču nima razpršenih škatel po različnih policah. Vsi sestavni deli so konsolidirani na svojih matičnih regalih.
+            Vsi kompleti imajo škatle zbrane na enotnih regalih.
           </p>
         </div>
       `;
@@ -1620,7 +1618,7 @@ window.renderConsolidationList = async function() {
               <div style="font-size: 0.76rem; color: var(--primary); font-family: monospace;"># ${escapeHtml(item.sku)} &bull; ${item.boxTotal > 1 ? `${item.boxTotal}-delni komplet` : 'Enojni artikel'}</div>
             </div>
             <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.72rem; padding: 4px 8px; border-radius: 4px; white-space: nowrap;">
-              🎯 Cilj: ${escapeHtml(item.targetShelf)}
+              Cilj: ${escapeHtml(item.targetShelf)}
             </span>
           </div>
 
@@ -1630,7 +1628,6 @@ window.renderConsolidationList = async function() {
             ${item.locations.map(loc => `
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
                 <span style="color: ${loc.shelf === item.targetShelf ? '#34d399' : '#f59e0b'};">
-                  ${loc.shelf === item.targetShelf ? '✓ ' : '⚠️ '}
                   Škatla ${loc.boxNum}/${loc.boxTotal}: <strong>${escapeHtml(loc.shelf)}</strong>
                 </span>
                 <span style="font-weight: 700; color: #fff;">${loc.count} kos</span>
@@ -1644,11 +1641,11 @@ window.renderConsolidationList = async function() {
               <div style="font-size: 0.78rem;">
                 <span style="color: #fbbf24; font-weight: 700;">Premakni Škatlo ${bm.boxNum}/${bm.boxTotal}:</span>
                 <div style="color: var(--text-muted); font-size: 0.74rem;">
-                  Iz <strong>${escapeHtml(bm.shelf)}</strong> ➔ Na <strong>${escapeHtml(item.targetShelf)}</strong> (${bm.count} kos)
+                  Iz <strong>${escapeHtml(bm.shelf)}</strong> -> Na <strong>${escapeHtml(item.targetShelf)}</strong> (${bm.count} kos)
                 </div>
               </div>
               <button type="button" class="btn-sm" onclick="quickConsolidateMove('${escapeHtml(item.sku)}', ${bm.boxNum}, '${escapeHtml(bm.shelf)}', '${escapeHtml(item.targetShelf)}', ${bm.count})" style="background: #a855f7; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.76rem; cursor: pointer; white-space: nowrap;">
-                🔀 Združi
+                Združi
               </button>
             </div>
           `).join('')}
@@ -1738,7 +1735,7 @@ window.exportConsolidationPDF = async function() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Nalog za konsolidacijo - Stran ${pageNo}`, margin, pageHeight - 6);
+      doc.text(`Skladisce - Nalog za konsolidacijo - Stran ${pageNo}`, margin, pageHeight - 6);
     }
 
     drawHeader();
@@ -1753,17 +1750,17 @@ window.exportConsolidationPDF = async function() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(22, 101, 52);
-      doc.text('VSE SKATLE SO ZE POPOLNOMA KONSOLIDIRANE!', margin + 8, y + 10);
+      doc.text('VSE SKATLE SO ZE KONSOLIDIRANE', margin + 8, y + 10);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(21, 128, 61);
-      doc.text('Noben artikel nima razprsenih skatel po razlicnih regalih. Vse je zbrano na ustreznih lokacijah.', margin + 8, y + 18);
+      doc.text('Noben artikel nima razprsenih skatel po razlicnih regalih.', margin + 8, y + 18);
 
       drawFooter(currentPage);
       const fileName = `skladisce-konsolidacija-${getDateStamp()}.pdf`;
       await downloadFile(doc.output('blob'), fileName, 'application/pdf');
-      showToast('PDF nalog konsolidacije uspesno prenesen (ni razprsenih delov)!');
+      showToast('PDF nalog konsolidacije prenesen.');
       return;
     }
 
@@ -1823,7 +1820,7 @@ window.exportConsolidationPDF = async function() {
     drawFooter(currentPage);
     const fileName = `skladisce-konsolidacija-${getDateStamp()}.pdf`;
     await downloadFile(doc.output('blob'), fileName, 'application/pdf');
-    showToast('📄 PDF delovni nalog konsolidacije uspešno shranjen!');
+    showToast('PDF delovni nalog konsolidacije shranjen.');
   } catch (err) {
     console.error('Napaka pri PDF konsolidacije:', err);
     showToast('Napaka pri PDF konsolidacije: ' + err.message);
@@ -1855,11 +1852,10 @@ window.renderReceivingArchiveList = function() {
 
     if (!Array.isArray(hist) || hist.length === 0) {
       listEl.innerHTML = `
-        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px 16px; text-align: center;">
-          <div style="font-size: 2.2rem; margin-bottom: 8px;">📭</div>
-          <h4 style="font-size: 1.05rem; color: #fff; margin-bottom: 4px;">Arhiv je prazen</h4>
+        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px 16px; text-align: center;">
+          <h4 style="font-size: 1rem; color: #fff; margin-bottom: 4px;">Arhiv je prazen</h4>
           <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">
-            Ko zaključite prevzemno pošiljko z gumbom "Zaključi pošiljko", se bo tukaj samodejno shranil arhiv z vsemi podatki in možnostjo ponovnega prenosa PDF zapisnika.
+            Zaključene prevzemne pošiljke se samodejno shranijo v arhiv.
           </p>
         </div>
       `;
@@ -1882,29 +1878,29 @@ window.renderReceivingArchiveList = function() {
             <div>
               <div style="font-weight: 700; font-size: 1rem; color: #fff;">${escapeHtml(session.name || 'Neimenovana pošiljka')}</div>
               <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 2px;">
-                ⏱️ Začetek: ${started} &bull; Zaključek: ${finished}
+                Začetek: ${started} &bull; Zaključek: ${finished}
               </div>
             </div>
             <button type="button" class="btn-sm" onclick="deleteHistoricalReceivingSession(${index})" style="background: none; border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; border-radius: 6px; padding: 4px 8px; font-size: 0.72rem; cursor: pointer;" title="Izbriši iz arhiva">
-              🗑️
+              Izbriši
             </button>
           </div>
 
           <!-- Značke statistike -->
           <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem;">
             <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 8px; border-radius: 4px;">
-              📦 ${totalBoxes} škatel (${uniqueSkus} artiklov)
+              ${totalBoxes} škatel (${uniqueSkus} artiklov)
             </span>
             <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 4px;">
-              ✨ ${completedSets} celih kompletov
+              ${completedSets} celih kompletov
             </span>
             ${incompleteCount > 0 ? `
               <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 3px 8px; border-radius: 4px;">
-                ⚠️ ${incompleteCount} primanjkljajev
+                ${incompleteCount} primanjkljajev
               </span>
             ` : `
               <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: 4px;">
-                ✓ Brez primanjkljajev
+                Brez primanjkljajev
               </span>
             `}
           </div>
@@ -1912,10 +1908,10 @@ window.renderReceivingArchiveList = function() {
           <!-- Gumbi za dejanja -->
           <div style="display: flex; gap: 8px; margin-top: 4px;">
             <button type="button" class="btn-primary" onclick="exportHistoricalReceivingPDF(${index})" style="margin: 0; flex: 2; background: linear-gradient(135deg, #38bdf8, #0284c7); padding: 9px 12px; font-size: 0.8rem;">
-              📄 Prenesi PDF zapisnik
+              Prenesi PDF zapisnik
             </button>
             <button type="button" class="btn-secondary" onclick="toggleHistoricalDetails(${index})" style="margin: 0; flex: 1; padding: 9px 10px; font-size: 0.8rem;">
-              👁️ Podrobnosti
+              Podrobnosti
             </button>
           </div>
 
@@ -1972,7 +1968,7 @@ window.deleteHistoricalReceivingSession = function(index) {
 };
 
 /* =========================================================================
-   5. OPTIČNI ČITALNIK ŠKATEL (OCR & TPU POSPEŠEVANJE)
+   5. OPTIČNI ČITALNIK ŠKATEL (OCR)
    ========================================================================= */
 let ocrWorker = null;
 let ocrWorkerPromise = null;
@@ -1987,19 +1983,18 @@ let lastDetectedSKU = null;
 let lastDetectedTime = 0;
 let autoScanAngleCycle = 0; // Izmenično 0° in 180° za narobe obrnjene škatle
 
-// Strojni TPU pospeševalnik (Android Shape Detection API / Google Play ML Kit)
+// Strojni TextDetector
 let nativeTextDetector = null;
 if (typeof window !== 'undefined' && 'TextDetector' in window) {
   try {
     nativeTextDetector = new window.TextDetector();
-    console.log('⚡ Strojni TPU TextDetector (Android NNAPI / ML Kit) je na voljo!');
   } catch (e) {
     console.warn('TextDetector ni bilo mogoče inicializirati:', e);
   }
 }
 
 /**
- * Predhodno ogrevanje lokalnega SIMD-LSTM nevronskega modela
+ * Predhodno nalaganje lokalnega OCR modela
  */
 async function initOCRWorker() {
   if (ocrWorkerPromise) return ocrWorkerPromise;
@@ -2011,7 +2006,6 @@ async function initOCRWorker() {
         return null;
       }
 
-      console.log('⚡ Zaganjam lokalni SIMD-LSTM pospeševalnik (brez CDN zakasnitev)...');
       const worker = await Tesseract.createWorker('eng', 1, {
         workerPath: './worker.min.js',
         corePath: './tesseract-core-simd-lstm.wasm.js',
@@ -2021,13 +2015,11 @@ async function initOCRWorker() {
           if (m.status === 'recognizing text') {
             const pct = Math.round((m.progress || 0) * 100);
             const textEl = document.getElementById('ocrLoadingText');
-            if (textEl) textEl.textContent = `⚡ TPU/SIMD pospešeno: ${pct}%`;
+            if (textEl) textEl.textContent = `Obdelava slike: ${pct}%`;
           }
         }
       });
 
-      // Ključna optimizacija: Onemogoči slovarje in permuterje (DAWGs)!
-      // Skladiščne kode niso knjižne angleške besede - s tem pridobimo 300% hitrosti!
       await worker.setParameters({
         tessedit_pageseg_mode: '6', // SINGLE_BLOCK (območje vizirja)
         load_system_dawg: '0',
@@ -2042,10 +2034,9 @@ async function initOCRWorker() {
       });
 
       ocrWorker = worker;
-      console.log('✓ Hitri SIMD-LSTM model je pripravljen.');
       return worker;
     } catch (err) {
-      console.warn('Inicijalizacija OCR modela:', err);
+      console.warn('Inicializacija OCR modela:', err);
       return null;
     }
   })();
@@ -2054,7 +2045,7 @@ async function initOCRWorker() {
 }
 
 /**
- * Zvočni pisk ob uspešnem zaznavanju škatle (Web Audio API - deluje 100% offline)
+ * Zvočni pisk ob uspešnem zaznavanju škatle
  */
 function playSuccessBeep() {
   try {
@@ -2086,10 +2077,10 @@ function triggerDetectionFlash() {
   const label = document.getElementById('frameLabelText');
   if (frame) {
     frame.classList.add('detected');
-    if (label) label.textContent = '✓ Prepoznano!';
+    if (label) label.textContent = 'Prepoznano';
     setTimeout(() => {
       frame.classList.remove('detected');
-      if (label) label.textContent = 'Usmeri v etiketo (pokončno ali obrnjeno)';
+      if (label) label.textContent = 'Usmeri kamero v etiketo';
     }, 1500);
   }
 }
@@ -2137,7 +2128,7 @@ async function triggerNativeMLKitScan() {
   try {
     const plugins = window.Capacitor?.Plugins;
     if (!plugins || !plugins.Camera || !plugins.TextRecognition) {
-      showToast('ML Kit vtičnik ni na voljo.');
+      showToast('Vtičnik za kamero ni na voljo.');
       return;
     }
 
@@ -2153,14 +2144,11 @@ async function triggerNativeMLKitScan() {
     const overlay = document.getElementById('ocrLoadingOverlay');
     const loadingText = document.getElementById('ocrLoadingText');
     if (overlay) overlay.style.display = 'flex';
-    if (loadingText) loadingText.textContent = '⚡ Google ML Kit prepoznava (20ms)...';
+    if (loadingText) loadingText.textContent = 'Obdelava slike...';
 
-    const t0 = performance.now();
     const result = await plugins.TextRecognition.processImage({
       path: photo.path
     });
-    const t1 = performance.now();
-    console.log(`Google ML Kit zaključen v ${Math.round(t1 - t0)}ms. Besedilo:`, result.text);
 
     if (overlay) overlay.style.display = 'none';
 
@@ -2175,7 +2163,7 @@ async function triggerNativeMLKitScan() {
     if (err && err.message && (err.message.includes('cancel') || err.message.includes('User cancelled'))) {
       return;
     }
-    console.error('ML Kit napaka:', err);
+    console.error('OCR napaka:', err);
     showToast('Napaka pri branju kamere: ' + (err.message || err));
   }
 }
@@ -2200,7 +2188,7 @@ async function triggerNativeMLKitGallery() {
     const overlay = document.getElementById('ocrLoadingOverlay');
     const loadingText = document.getElementById('ocrLoadingText');
     if (overlay) overlay.style.display = 'flex';
-    if (loadingText) loadingText.textContent = '⚡ Google ML Kit analiza slike...';
+    if (loadingText) loadingText.textContent = 'Obdelava slike...';
 
     const result = await plugins.TextRecognition.processImage({
       path: photo.path
@@ -2229,25 +2217,22 @@ function setupBoxOCRScanner() {
   const btnToggleAuto = document.getElementById('btnToggleAutoScan');
   const autoText = document.getElementById('autoScanStatusText');
 
-  // Preveri ali tečemo v Capacitor nativni aplikaciji (Google ML Kit)
   const isNative = isCapacitorNative();
   if (isNative) {
-    console.log('⚡ Tečemo v Capacitor Android aplikaciji z Google ML Kit!');
-    btnCapture.textContent = '📸 ZAJEMI FOTOGRAFIJO (Google ML Kit)';
+    btnCapture.textContent = 'Zajemi fotografijo';
     btnCapture.style.background = 'linear-gradient(135deg, #10b981, #059669)';
     btnCapture.style.color = '#fff';
     btnCapture.style.borderColor = '#10b981';
-    btnCapture.style.fontSize = '1.02rem';
+    btnCapture.style.fontSize = '0.95rem';
     btnCapture.style.fontWeight = '700';
-    btnCapture.style.padding = '14px';
+    btnCapture.style.padding = '12px';
     btnCapture.addEventListener('click', triggerNativeMLKitScan);
     btnPhoto.addEventListener('click', triggerNativeMLKitGallery);
 
-    // Klik na vizir kamere prav tako sproži takojšen nativen zajem
     const scanFrame = document.getElementById('scanFrameBox');
     if (scanFrame) {
       scanFrame.style.cursor = 'pointer';
-      scanFrame.title = 'Klikni za takojšen zajem s kamero';
+      scanFrame.title = 'Klikni za zajem s kamero';
       scanFrame.addEventListener('click', triggerNativeMLKitScan);
     }
   } else {
@@ -2277,12 +2262,12 @@ function setupBoxOCRScanner() {
         btnToggleAuto.classList.remove('disabled');
         btnToggleAuto.classList.add('active');
         if (autoText) autoText.textContent = 'SAMODEJNO BRANJE: VKLOP';
-        showToast('🟢 Samodejno branje vklopljeno');
+        showToast('Samodejno branje vklopljeno');
       } else {
         btnToggleAuto.classList.remove('active');
         btnToggleAuto.classList.add('disabled');
         if (autoText) autoText.textContent = 'SAMODEJNO BRANJE: PAVZA';
-        showToast('⏸️ Samodejno branje začasno ustavljeno');
+        showToast('Samodejno branje začasno ustavljeno');
       }
     });
   }
@@ -2412,11 +2397,7 @@ async function runAutoScanTick() {
 }
 
 /**
- * Analiza sličice v realnem času:
- * - 1000px kristalno čista visoka ločljivost za natančno branje brez napak
- * - Zvezno raztegovanje ravni svetlosti (Auto-Levels) ohranja zglajene oblike črk
- * - Native TPU / TextDetector, če je na voljo (15ms!)
- * - Izmenično preverjanje 0° in 180° (vedno le EN kot na sličico)
+ * Analiza sličice v realnem času
  */
 async function processAutoScanFrame(video) {
   if (isProcessingFrame) return;
@@ -2462,7 +2443,7 @@ async function processAutoScanFrame(video) {
       }
     }
 
-    // B. Strojni TPU pospeševalnik (Android Shape Detection API / Google Play ML Kit v brskalniku)
+    // B. Strojni TextDetector v brskalniku
     if (!parsed && nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvasToTest);
@@ -2638,15 +2619,15 @@ async function processImageWithOCR(canvas) {
   const overlay = document.getElementById('ocrLoadingOverlay');
   const loadingText = document.getElementById('ocrLoadingText');
   overlay.style.display = 'flex';
-  loadingText.textContent = '⚡ TPU/SIMD analiza slike škatle...';
+  loadingText.textContent = 'Obdelava slike...';
 
   try {
     let parsed = null;
 
-    // A. Če tečemo v Capacitor z native Google ML Kit (20ms)
+    // A. Če tečemo v Capacitor z native OCR
     if (isCapacitorNative() && window.Capacitor?.Plugins?.MLKitDirect) {
       try {
-        loadingText.textContent = '⚡ Google ML Kit analiza (20ms)...';
+        loadingText.textContent = 'Obdelava slike...';
         const base64 = canvas.toDataURL('image/jpeg', 0.90);
         const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
         if (res && res.text) {
@@ -2668,7 +2649,7 @@ async function processImageWithOCR(canvas) {
       }
     }
 
-    // B. Poskusi s strojnim TPU v brskalniku
+    // B. Poskusi s strojnim TextDetector v brskalniku
     if (!parsed && nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvas);
@@ -2682,11 +2663,11 @@ async function processImageWithOCR(canvas) {
       } catch (e) {}
     }
 
-    // B. Poskusi z lokalnim SIMD modelom
+    // C. Poskusi z lokalnim OCR modelom
     if (!parsed) {
       let worker = ocrWorker;
       if (!worker) {
-        loadingText.textContent = '⚡ Pripravljam nevronski model...';
+        loadingText.textContent = 'Priprava čitalnika...';
         worker = await initOCRWorker();
       }
 
@@ -2694,13 +2675,12 @@ async function processImageWithOCR(canvas) {
         throw new Error('OCR model ni na voljo.');
       }
 
-      const t0 = performance.now();
       const ret = await worker.recognize(canvas, {}, { text: true, blocks: false, hocr: false, tsv: false });
       parsed = WarehouseLabelParser.parse(ret.data.text || '');
 
       // Če ne najde šifre ali računa na 0°, preveri še 180°
       if (!parsed.articleNumber && !parsed.isReceipt) {
-        loadingText.textContent = '🔄 Preverjam obrnjeno škatlo (180°)...';
+        loadingText.textContent = 'Preverjanje obrnjene slike...';
         const rotated180 = rotateCanvas(canvas, 180);
         const ret180 = await worker.recognize(rotated180, {}, { text: true, blocks: false, hocr: false, tsv: false });
         const parsed180 = WarehouseLabelParser.parse(ret180.data.text || '');
@@ -2708,9 +2688,6 @@ async function processImageWithOCR(canvas) {
           parsed = parsed180;
         }
       }
-
-      const t1 = performance.now();
-      console.log(`OCR zaključen v ${Math.round(t1 - t0)}ms. Besedilo:`, parsed);
     }
 
     playSuccessBeep();
@@ -2888,14 +2865,14 @@ function renderDispatchRouteList() {
                 const isTarget = (l === activeLoc);
                 badgeList.push(`
                   <div class="dispatch-shelf-pill ${isTarget ? 'highlight' : ''}" style="${!isTarget ? 'border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.08);' : ''}">
-                    <span>📍</span> <span>Šk.${b.boxNum}: ${escapeHtml(l.name)}</span>
+                    <span>Šk.${b.boxNum}: ${escapeHtml(l.name)}</span>
                     <span style="font-size:0.75rem; opacity:0.9; margin-left:4px;">(${l.count} kos)</span>
                   </div>
                 `);
               } else {
                 badgeList.push(`
                   <div class="dispatch-shelf-pill" style="border-color: #ef4444; color: #f87171; background: rgba(239, 68, 68, 0.1);">
-                    <span>⚠️ Šk.${b.boxNum}: ${escapeHtml(l.name)} (prazno)</span>
+                    <span>Šk.${b.boxNum}: ${escapeHtml(l.name)} (prazno)</span>
                   </div>
                 `);
               }
@@ -2903,7 +2880,7 @@ function renderDispatchRouteList() {
           } else {
             badgeList.push(`
               <div class="dispatch-shelf-pill highlight">
-                <span>📍</span> <span>Šk.${b.boxNum}: ${escapeHtml(activeLoc.name)}</span>
+                <span>Šk.${b.boxNum}: ${escapeHtml(activeLoc.name)}</span>
               </div>
             `);
           }
@@ -2913,8 +2890,8 @@ function renderDispatchRouteList() {
 
         multiBoxSection = `
           <div class="dispatch-multibox-box">
-            <div style="font-size: 0.78rem; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
-              <span>⚠️ POZOR: Artikel sestavljata ${boxTotal} škatli! Poberi obe škatli:</span>
+            <div style="font-size: 0.78rem; font-weight: 700; color: #fbbf24;">
+              Artikel sestavljata ${boxTotal} škatli:
             </div>
             ${stats.breakdown.map(b => {
               const locs = b.locations || [{ name: b.location, count: b.count, isPrimary: true }];
@@ -2924,7 +2901,7 @@ function renderDispatchRouteList() {
                 <div class="dispatch-box-row" style="flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px;">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="dispatch-box-name">
-                      <span>📦</span> Škatla ${b.boxNum}/${boxTotal}
+                      Škatla ${b.boxNum}/${boxTotal}
                     </div>
                     <div class="dispatch-box-stock">
                       (Skupaj zaloga: <strong>${b.count}</strong> kos)
@@ -2939,7 +2916,7 @@ function renderDispatchRouteList() {
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; background:${isTarget ? 'rgba(245, 158, 11, 0.12)' : (isZero ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.03)')}; padding:4px 8px; border-radius:4px; border:1px solid ${isTarget ? 'rgba(245, 158, 11, 0.35)' : 'transparent'};">
                           <div>
                             <span style="font-weight:700; color:${isTarget ? '#fbbf24' : (isZero ? '#ef4444' : '#cbd5e1')};">
-                              ${isZero ? '⚠️ Prazen regal:' : (isTarget ? '👉 Glavni regal:' : '🔄 Preliv / rezerva:')}
+                              ${isZero ? 'Prazen regal:' : (isTarget ? 'Glavni regal:' : 'Preliv / rezerva:')}
                             </span>
                             <span style="color:#fff; margin-left:4px; font-weight:600;">${escapeHtml(l.name)}</span>
                           </div>
@@ -2968,7 +2945,7 @@ function renderDispatchRouteList() {
 
         shelfBadges = singleLocs.map(l => `
           <div class="dispatch-shelf-pill ${l === activeLoc ? 'highlight' : ''}" style="${l !== activeLoc ? 'border: 1.5px dashed #f59e0b; background: rgba(245, 158, 11, 0.08);' : ''}">
-            <span>📍</span> <span>${escapeHtml(l.name)}</span>
+            <span>${escapeHtml(l.name)}</span>
             <span style="font-size:0.75rem; opacity:0.9; margin-left:4px;">(${l.count} kos)</span>
           </div>
         `).join(' ');
@@ -2985,21 +2962,21 @@ function renderDispatchRouteList() {
     } else {
       shelfBadges = `
         <div class="dispatch-shelf-pill" style="border-color: #ef4444; color: #f87171; background: rgba(239, 68, 68, 0.15);">
-          <span>📍</span> <span>REGAL NEZNAN (Ni v evidenci)</span>
+          <span>REGAL NEZNAN (Ni v evidenci)</span>
         </div>
       `;
 
       stockSummary = `
         <div style="font-size: 0.8rem; color: var(--warning); background: rgba(245, 158, 11, 0.1); padding: 6px 10px; border-radius: var(--radius-sm);">
-          ⚠️ Artikel še ni v sistemu zalog skladišča.
+          Artikel še ni v sistemu zalog skladišča.
         </div>
       `;
     }
 
     const cardClass = isPicked ? 'dispatch-card picked-step' : (idx === 0 || currentDispatchItems[idx - 1]?.isPicked ? 'dispatch-card active-step' : 'dispatch-card');
     const badgeStatus = isPicked 
-      ? '<span class="dispatch-step-badge done">✅ PREVZETO</span>'
-      : '<span class="dispatch-step-badge pending">⏳ ČAKA PREVZEM</span>';
+      ? '<span class="dispatch-step-badge done">PREVZETO</span>'
+      : '<span class="dispatch-step-badge pending">ČAKA PREVZEM</span>';
 
     html += `
       <div class="${cardClass}" id="dispatchCard_${idx}">
@@ -3025,11 +3002,11 @@ function renderDispatchRouteList() {
         <div style="margin-top: 4px;">
           ${isPicked ? `
             <button type="button" class="btn-pick-confirm" disabled style="background: rgba(16, 185, 129, 0.2); color: #10b981; border-color: rgba(16, 185, 129, 0.4); cursor: default;">
-              ✓ Uspešno pobrano iz regala
+              Pobrano iz regala
             </button>
           ` : `
             <button type="button" class="btn-pick-confirm" onclick="confirmDispatchPick(${idx})">
-              👉 Vzemi ${item.orderedQty}x in potrdi prevzem
+              Potrdi prevzem (${item.orderedQty}x)
             </button>
           `}
         </div>
@@ -3060,7 +3037,7 @@ window.confirmDispatchPick = async function(index) {
     item.isPicked = true;
     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     playSuccessBeep();
-    showToast(`✅ Prevzeto: ${item.name}`);
+    showToast(`Prevzeto: ${item.name}`);
 
     renderDispatchRouteList();
     updateDispatchProgress();
@@ -3095,7 +3072,7 @@ function updateDispatchProgress() {
   if (btnFinish) {
     if (picked === total && total > 0) {
       btnFinish.disabled = false;
-      btnFinish.innerHTML = '🎉 Vse pobrano &mdash; Zaključi izdajo';
+      btnFinish.innerHTML = 'Zaključi izdajo';
     } else {
       btnFinish.disabled = (picked === 0);
       btnFinish.innerHTML = `Zaključi delno izdajo (${picked}/${total})`;
@@ -3115,7 +3092,7 @@ async function finishReceiptDispatch() {
   closeReceiptDispatchModal();
 
   const receiptNo = currentDispatchData?.receiptNo || '';
-  showToast(`🎉 Izdaja po računu ${receiptNo} je uspešno zaključena!`);
+  showToast(`Izdaja po računu ${receiptNo} je zaključena.`);
   playSuccessBeep();
 
   await refreshInventory();
@@ -3149,7 +3126,6 @@ function renderBoxResultCard(existingItem) {
     : (existingItem ? existingItem.location : '');
 
   // 1. PAMETNO USMERJANJE NA ISTI REGAL:
-  // Če gre za večdelni artikel in druge škatle že ležijo na določenem regalu, skladiščniku to takoj predlagamo!
   let smartShelfHintHtml = '';
   let suggestedShelf = '';
   let suggestedReason = '';
@@ -3172,26 +3148,20 @@ function renderBoxResultCard(existingItem) {
     if (otherBoxLocations.length > 0) {
       const withStock = otherBoxLocations.find(o => o.count > 0) || otherBoxLocations[0];
       suggestedShelf = withStock.location;
-      suggestedReason = `Škatla ${withStock.boxNum}/${boxTotal} se že nahaja na regalu <strong>${escapeHtml(suggestedShelf)}</strong> (${withStock.count} kos).`;
+      suggestedReason = `Škatla ${withStock.boxNum}/${boxTotal} je na regalu <strong>${escapeHtml(suggestedShelf)}</strong> (${withStock.count} kos).`;
 
       smartShelfHintHtml = `
-        <div class="smart-shelf-banner" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 78, 59, 0.45)); border: 1.5px solid #10b981; border-radius: var(--radius-sm); padding: 10px 12px; margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div style="display:flex; align-items:flex-start; gap: 8px; flex: 1;">
-            <span style="font-size: 1.3rem; line-height: 1;">📍</span>
-            <div>
-              <div style="font-size: 0.84rem; font-weight: 800; color: #fff;">
-                Priporočeni regal: <span style="color: #34d399; font-size: 0.95rem;">${escapeHtml(suggestedShelf)}</span>
-              </div>
-              <div style="font-size: 0.73rem; color: #d1fae5; margin-top: 2px;">
-                ${suggestedReason}
-              </div>
-              <div style="font-size: 0.70rem; color: #a7f3d0; margin-top: 1px;">
-                💡 Odloži to škatlo tja, da bo celoten komplet zbran na enem mestu!
-              </div>
+        <div class="smart-shelf-banner" style="background: rgba(16, 185, 129, 0.14); border: 1px solid #10b981; border-radius: var(--radius-sm); padding: 10px 12px; margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="flex: 1;">
+            <div style="font-size: 0.84rem; font-weight: 800; color: #fff;">
+              Priporočeni regal: <span style="color: #34d399; font-size: 0.95rem;">${escapeHtml(suggestedShelf)}</span>
+            </div>
+            <div style="font-size: 0.73rem; color: #d1fae5; margin-top: 2px;">
+              ${suggestedReason}
             </div>
           </div>
-          <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(suggestedShelf)}')" style="background: #10b981; color: #042f2e; border: none; border-radius: 6px; padding: 7px 11px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">
-            ✓ Izberi regal
+          <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(suggestedShelf)}')" style="background: #10b981; color: #042f2e; border: none; border-radius: 6px; padding: 7px 11px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap;">
+            Izberi regal
           </button>
         </div>
       `;
@@ -3223,14 +3193,14 @@ function renderBoxResultCard(existingItem) {
           </div>
           ${stats.breakdown.map(b => `
             <div class="box-breakdown-row" style="${b.boxNum === boxNum ? 'border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.1);' : ''}">
-              <span>${b.boxNum === boxNum ? '👉 ' : ''}Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">${escapeHtml(b.location)}</span></span>
+              <span>${b.boxNum === boxNum ? '> ' : ''}Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">${escapeHtml(b.location)}</span></span>
               <span class="box-breakdown-count">${b.count} kos</span>
             </div>
           `).join('')}
           <div style="font-size: 0.76rem; margin-top: 2px;">
             ${stats.hasIncomplete 
-              ? `<span style="color: var(--warning); font-weight:600;">⚠️ ${escapeHtml(stats.missingSummary)} (celih: ${stats.completeSets})</span>` 
-              : `<span style="color: var(--success); font-weight:600;">✓ Vse škatle na voljo (${stats.completeSets} kompletov)</span>`}
+              ? `<span style="color: var(--warning); font-weight:600;">${escapeHtml(stats.missingSummary)} (celih: ${stats.completeSets})</span>` 
+              : `<span style="color: var(--success); font-weight:600;">Vse škatle na voljo (${stats.completeSets} kompletov)</span>`}
           </div>
         </div>
       `;
@@ -3238,7 +3208,7 @@ function renderBoxResultCard(existingItem) {
   } else {
     stockInfoHtml = `
       <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.85rem; color: var(--warning);">
-        ⚠️ Artikel s šifro <strong>${escapeHtml(sku)}</strong> še ni vpisan v zalogo.
+        Artikel s šifro <strong>${escapeHtml(sku)}</strong> še ni vpisan v zalogo.
       </div>
     `;
   }
@@ -3255,14 +3225,14 @@ function renderBoxResultCard(existingItem) {
     <div style="display: flex; flex-direction: column; gap: 4px; margin: 4px 0;">
       <div style="display:flex; justify-content: space-between; align-items:center;">
         <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Naziv artikla:</span>
-        <span style="font-size: 0.72rem; color: var(--primary);">✏️ klikni za popravek</span>
+        <span style="font-size: 0.72rem; color: var(--primary);">uredi naziv</span>
       </div>
       <input type="text" id="boxResultNameInput" class="form-control" style="font-size: 1.05rem; font-weight: 700; color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(56, 189, 248, 0.4); padding: 8px 10px;" value="${escapeHtml(name)}">
     </div>
 
     <div class="box-badges">
-      <span class="box-badge highlight">📦 ${escapeHtml(boxInfo)}</span>
-      ${boxTotal > 1 ? `<span class="box-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">⚠️ Škatla ${boxNum} od ${boxTotal}</span>` : ''}
+      <span class="box-badge highlight">${escapeHtml(boxInfo)}</span>
+      ${boxTotal > 1 ? `<span class="box-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">Škatla ${boxNum} od ${boxTotal}</span>` : ''}
     </div>
 
     ${smartShelfHintHtml}
@@ -3271,7 +3241,7 @@ function renderBoxResultCard(existingItem) {
     <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
         <span style="font-size: 0.74rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">
-          📍 Lokacija za Škatlo ${boxNum}/${boxTotal}:
+          Lokacija za Škatlo ${boxNum}/${boxTotal}:
         </span>
         <span style="font-size: 0.7rem; color: var(--text-muted);">regal / polica</span>
       </div>
@@ -3293,27 +3263,29 @@ function renderBoxResultCard(existingItem) {
     <!-- Hitra skladiščna dejanja za prevzem in izdajo -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
       <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px;">
-        📥 PREVZEMI (+${currentMultiplier} škatel)
+        PREVZEMI (+${currentMultiplier} škatel)
       </button>
       <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px;">
-        📤 IZDAJ (-${currentMultiplier} škatel)
+        IZDAJ (-${currentMultiplier} škatel)
       </button>
     </div>
 
     ${!existingItem && sku ? `
       <button class="btn-secondary" onclick="openAddFromScannedBox()" style="margin-top: 4px; border-color: var(--primary); color: var(--primary);">
-        ➕ Dodaj ta artikel v skladišče
+        + Dodaj ta artikel v skladišče
       </button>
     ` : ''}
     <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 4px; padding: 10px; font-size: 0.85rem; border-color: rgba(255,255,255,0.15);">
-      ✕ Zapri in skeniraj naslednjo škatlo
+      Zapri in skeniraj naslednjo škatlo
     </button>
   `;
+}
+
 window.applySuggestedShelf = function(shelf) {
   const input = document.getElementById('boxResultLocationInput');
   if (input) {
     input.value = shelf;
-    showToast(`📍 Izbran priporočeni regal: ${shelf}`);
+    showToast(`Izbran priporočeni regal: ${shelf}`);
   }
 };
 
@@ -3321,8 +3293,8 @@ window.setBoxMultiplier = function(m) {
   currentMultiplier = Number(m) || 1;
   const inBtn = document.getElementById('btnConfirmReceiveBox');
   const outBtn = document.getElementById('btnConfirmIssueBox');
-  if (inBtn) inBtn.textContent = `📥 PREVZEMI (+${currentMultiplier} škatel)`;
-  if (outBtn) outBtn.textContent = `📤 IZDAJ (-${currentMultiplier} škatel)`;
+  if (inBtn) inBtn.textContent = `PREVZEMI (+${currentMultiplier} škatel)`;
+  if (outBtn) outBtn.textContent = `IZDAJ (-${currentMultiplier} škatel)`;
 
   const btns = document.querySelectorAll('.mult-btn');
   btns.forEach(b => b.classList.remove('active'));
@@ -3382,7 +3354,7 @@ window.executeBoxStockChange = async function(direction) {
   await DB.adjustStock(item.sku, delta, note, direction, boxNum, boxLocation);
   if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
-  showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} škatel (${chosenName})` : `📤 Izdano: -${totalAmount} škatel (${chosenName})`);
+  showToast(direction === 'in' ? `Prevzeto: +${totalAmount} škatel (${chosenName})` : `Izdano: -${totalAmount} škatel (${chosenName})`);
 
   // Osveži prikaz
   const updatedItem = await DB.getItemById(item.sku);
@@ -3628,10 +3600,10 @@ async function loadAuditSession(forceReset = false) {
       const currentSelected = auditSession.shelfFilter || 'all';
       const sortedShelves = Array.from(shelfSet).sort((a, b) => a.localeCompare(b, 'sl-SI'));
 
-      let optionsHtml = '<option value="all">📍 Vsi regali (Celotno skladišče)</option>';
+      let optionsHtml = '<option value="all">Vsi regali</option>';
       sortedShelves.forEach(shelf => {
         const isSel = (shelf === currentSelected) ? 'selected' : '';
-        optionsHtml += `<option value="${escapeHtml(shelf)}" ${isSel}>📍 ${escapeHtml(shelf)}</option>`;
+        optionsHtml += `<option value="${escapeHtml(shelf)}" ${isSel}>${escapeHtml(shelf)}</option>`;
       });
       shelfSelect.innerHTML = optionsHtml;
     }
@@ -3711,7 +3683,6 @@ function renderAuditList() {
   if (list.length === 0) {
     container.innerHTML = `
       <div class="empty-box" style="padding: 32px 16px; text-align: center;">
-        <div style="font-size: 2.2rem; margin-bottom: 8px;">📋</div>
         <p style="color: var(--text-muted); font-size: 0.95rem;">Ni postavk za izbrane filtre.</p>
       </div>
     `;
@@ -3725,13 +3696,13 @@ function renderAuditList() {
 
     let diffBadgeHtml = '';
     if (!entry.isCounted) {
-      diffBadgeHtml = `<span class="audit-diff-badge uncounted">⚪ Še neprešteto</span>`;
+      diffBadgeHtml = `<span class="audit-diff-badge uncounted">Neprešteto</span>`;
     } else if (diff === 0) {
-      diffBadgeHtml = `<span class="audit-diff-badge match">✓ Usklajeno (0)</span>`;
+      diffBadgeHtml = `<span class="audit-diff-badge match">Usklajeno (0)</span>`;
     } else if (diff < 0) {
-      diffBadgeHtml = `<span class="audit-diff-badge deficit">⚠️ Manjko (${diff})</span>`;
+      diffBadgeHtml = `<span class="audit-diff-badge deficit">Manjko (${diff})</span>`;
     } else {
-      diffBadgeHtml = `<span class="audit-diff-badge surplus">➕ Višek (+${diff})</span>`;
+      diffBadgeHtml = `<span class="audit-diff-badge surplus">Višek (+${diff})</span>`;
     }
 
     return `
@@ -3744,7 +3715,7 @@ function renderAuditList() {
                 Škatla ${entry.boxNum}/${entry.boxTotal}
               </span>
               <span class="location-badge" style="font-size: 0.75rem;">
-                📍 ${escapeHtml(entry.locName)}
+                ${escapeHtml(entry.locName)}
               </span>
             </div>
             <div style="font-weight: 700; font-size: 0.95rem; color: #fff; line-height: 1.3;">
@@ -3794,13 +3765,13 @@ function updateAuditCardDOM(entry) {
   if (diffDiv) {
     const diff = entry.countedQty - entry.bookQty;
     if (!entry.isCounted) {
-      diffDiv.innerHTML = `<span class="audit-diff-badge uncounted">⚪ Še neprešteto</span>`;
+      diffDiv.innerHTML = `<span class="audit-diff-badge uncounted">Neprešteto</span>`;
     } else if (diff === 0) {
-      diffDiv.innerHTML = `<span class="audit-diff-badge match">✓ Usklajeno (0)</span>`;
+      diffDiv.innerHTML = `<span class="audit-diff-badge match">Usklajeno (0)</span>`;
     } else if (diff < 0) {
-      diffDiv.innerHTML = `<span class="audit-diff-badge deficit">⚠️ Manjko (${diff})</span>`;
+      diffDiv.innerHTML = `<span class="audit-diff-badge deficit">Manjko (${diff})</span>`;
     } else {
-      diffDiv.innerHTML = `<span class="audit-diff-badge surplus">➕ Višek (+${diff})</span>`;
+      diffDiv.innerHTML = `<span class="audit-diff-badge surplus">Višek (+${diff})</span>`;
     }
   }
 }
@@ -3884,7 +3855,7 @@ function handleAuditScan(skuInput) {
   }
 
   playSuccessBeep();
-  showToast(`➕ Prešteto +1: ${target.name} (${target.countedQty} kos)`);
+  showToast(`Prešteto +1: ${target.name} (${target.countedQty} kos)`);
 }
 
 async function resetAuditSession() {
@@ -3928,10 +3899,10 @@ async function applyAuditToInventory() {
   if (!confirm(confirmMsg)) return;
 
   try {
-    showToast('Uskaljujem zalogo...');
+    showToast('Usklajujem zalogo...');
     const result = await DB.applyAuditResults(entries);
 
-    showToast(`✅ Zaloga uspešno usklajena! Posodobljenih ${result.totalAdjustments} postavk.`);
+    showToast(`Zaloga usklajena. Posodobljenih ${result.totalAdjustments} postavk.`);
     playSuccessBeep();
 
     // Počistimo sejo in naložimo sveže podatke
@@ -4073,7 +4044,7 @@ window.exportAuditPDF = async function exportAuditPDF() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Inventurni zapisnik - Stran ${pageNo}`, margin, pageHeight - 6);
+      doc.text(`Skladisce - Inventurni zapisnik - Stran ${pageNo}`, margin, pageHeight - 6);
     }
 
     drawPageHeader(1);
@@ -4205,7 +4176,7 @@ window.exportAuditPDF = async function exportAuditPDF() {
 
     const fileName = `Inventurni_zapisnik_${getDateStamp()}.pdf`;
     downloadFile(doc.output('blob'), fileName, 'application/pdf');
-    showToast('Inventurni zapisnik PDF uspešno prenesen!');
+    showToast('Inventurni zapisnik PDF prenesen.');
   } catch (err) {
     console.error('Napaka pri generiranju inventurnega PDF:', err);
     showToast('Napaka pri PDF: ' + err.message);
@@ -4232,9 +4203,9 @@ function setupSettingsAndBackup() {
         showToast('Preverjam dvojnike v bazi...');
         const res = await DB.deduplicateItems();
         if (res.removedDuplicatesCount > 0) {
-          showToast(`🧹 Uspešno združeni ${res.mergedGroupsCount} artikli (odstranjenih ${res.removedDuplicatesCount} dvojnikov)!`);
+          showToast(`Združeni ${res.mergedGroupsCount} artikli (odstranjenih ${res.removedDuplicatesCount} dvojnikov).`);
         } else {
-          showToast('✓ V bazi ni nobenih podvojenih artiklov.');
+          showToast('V bazi ni podvojenih artiklov.');
         }
         await refreshInventory();
       } catch (err) {
@@ -4309,7 +4280,7 @@ function setupSettingsAndBackup() {
             delete item.id;
             await DB.addItem(item);
           }
-          showToast(`Uspešno uvoženih ${data.items.length} artiklov.`);
+          showToast(`Uvoženih ${data.items.length} artiklov.`);
           await refreshInventory();
         }
       } else {
@@ -4344,15 +4315,14 @@ function setupSettingsAndBackup() {
   if (btnClearAll) {
     btnClearAll.addEventListener('click', async () => {
       const confirmed = confirm(
-        '⚠️ OPOZORILO: Ali ste popolnoma prepričani, da želite IZBRISATI VSE artikle in zalogo iz skladišča?\n\n' +
-        'To bo izbrisalo vse demo in obstoječe artikle ter pustilo prazno bazo za vnos vaših pravih artiklov.'
+        'Ali ste prepričani, da želite izbrisati vse artikle in zalogo iz skladišča?'
       );
       if (!confirmed) return;
 
       try {
         await DB.clearAllItems();
         localStorage.setItem('skladisce_demo_seeded', 'true'); // Da se demo artikli ne naložijo ponovno
-        showToast('🗑️ Vsi artikli in zaloge so bili uspešno izbrisani.');
+        showToast('Vsi artikli in zaloge so bili izbrisani.');
         await refreshInventory();
         await refreshLogs();
       } catch (err) {
@@ -4366,12 +4336,12 @@ function setupSettingsAndBackup() {
 window.loadDemoData = async function() {
   await DB.seedDemoData();
   localStorage.setItem('skladisce_demo_seeded', 'true');
-  showToast('Testni skladiščni artikli uspešno naloženi!');
+  showToast('Vzorčni artikli naloženi.');
   await refreshInventory();
 };
 
 /* =========================================================================
-   7b. BREZZICNA BLE SINHRONIZACIJA BREZ PARJENJA (100% OFFLINE P2P)
+   7b. BREZZICNA BLE SINHRONIZACIJA
    ========================================================================= */
 function setupBLESync() {
   const btnHeader = document.getElementById('btnHeaderBLESync');
@@ -4430,17 +4400,17 @@ function openBLESyncChoice() {
   summary.style.display = 'block';
   summary.innerHTML = `
     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 6px;">
-      <button class="btn-primary" onclick="startBLESending()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
-        <span>🚀</span> Pošlji mojo zalogo (Oddajaj)
+      <button class="btn-primary" onclick="startBLESending()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem;">
+        Pošlji zalogo (Oddajaj)
       </button>
-      <button class="btn-secondary" onclick="startBLEReceiving()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem; color: #38bdf8; border-color: rgba(56, 189, 248, 0.5); display: flex; align-items: center; justify-content: center; gap: 8px;">
-        <span>📥</span> Prejmi zalogo od sodelavca
+      <button class="btn-secondary" onclick="startBLEReceiving()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem; color: #38bdf8; border-color: rgba(56, 189, 248, 0.5);">
+        Prejmi zalogo
       </button>
     </div>
   `;
 
-  title.textContent = 'Brezžična sinhronizacija v kleti';
-  desc.textContent = 'Brez parjenja in brez interneta. Izberite, ali želite oddajati ali sprejeti zalogo.';
+  title.textContent = 'Bluetooth sinhronizacija';
+  desc.textContent = 'Izberite pošiljanje ali prejemanje podatkov o zalogi.';
   cancelBtn.textContent = 'Zapri';
   modal.style.display = 'flex';
 }
@@ -4456,12 +4426,12 @@ async function startBLESending() {
 
   modal.style.display = 'flex';
   radar.style.display = 'flex';
-  radarIcon.textContent = '📡';
+  radarIcon.textContent = 'BLE';
   summary.style.display = 'none';
   cancelBtn.textContent = 'Prekliči';
 
   title.textContent = 'Oddajam zalogo prek BLE...';
-  desc.textContent = 'Sodelavec naj na svojem telefonu pritisne "Prejmi zalogo". Čakam povezavo...';
+  desc.textContent = 'Na drugi napravi izberite "Prejmi zalogo". Čakam povezavo...';
 
   try {
     const items = await DB.getAllItems();
@@ -4480,10 +4450,10 @@ async function startBLESending() {
       if (res && res.success) {
         radar.style.display = 'none';
         summary.style.display = 'block';
-        title.textContent = '🎉 Uspešno poslano sodelavcu!';
-        desc.textContent = 'Sodelavec je v celoti prejel zadnje stanje zaloge in vse premike.';
+        title.textContent = 'Podatki poslani';
+        desc.textContent = 'Druga naprava je prejela stanje zaloge in premike.';
         summary.innerHTML = `
-          <div style="color: #34d399; font-weight: 700; margin-bottom: 4px;">✓ Prenos zaključen</div>
+          <div style="color: #34d399; font-weight: 700; margin-bottom: 4px;">Prenos zaključen</div>
           <div>Oddanih ${items.length} artiklov in ${logs.length} zapisov premikov.</div>
         `;
         playSuccessBeep();
@@ -4493,7 +4463,7 @@ async function startBLESending() {
       radar.style.display = 'none';
       summary.style.display = 'block';
       title.textContent = 'BLE zahteva nameščen APK';
-      desc.textContent = 'Brezžična BLE povezava deluje na Android napravi (APK). V brskalniku uporabite izvoz varnostne kopije.';
+      desc.textContent = 'Bluetooth povezava deluje na Android napravi (APK). V brskalniku uporabite izvoz varnostne kopije.';
     }
   } catch (err) {
     console.warn('BLE Send error:', err);
@@ -4514,12 +4484,12 @@ async function startBLEReceiving() {
 
   modal.style.display = 'flex';
   radar.style.display = 'flex';
-  radarIcon.textContent = '🔍';
+  radarIcon.textContent = 'BLE';
   summary.style.display = 'none';
   cancelBtn.textContent = 'Prekliči';
 
-  title.textContent = 'Iščem sodelavca v bližini...';
-  desc.textContent = 'Telefon usmerite ali približajte sodelavcu (1–5 metrov).';
+  title.textContent = 'Iščem napravo v bližini...';
+  desc.textContent = 'Približajte napravi (1–5 metrov).';
 
   try {
     if (isCapacitorNative() && window.Capacitor?.Plugins?.BLESync) {
@@ -4537,8 +4507,8 @@ async function startBLEReceiving() {
 
         radar.style.display = 'none';
         summary.style.display = 'block';
-        title.textContent = '🎉 Zaloga uspešno usklajena!';
-        desc.textContent = 'Vse izvedene izdaje so se samodejno zmanjšale na ustreznih policah.';
+        title.textContent = 'Zaloga usklajena';
+        desc.textContent = 'Podatki o zalogi in premikih so posodobljeni.';
 
         let newNamesHtml = '';
         if (mergeResult.addedItemNames && mergeResult.addedItemNames.length > 0) {
@@ -4546,11 +4516,11 @@ async function startBLEReceiving() {
         }
 
         summary.innerHTML = `
-          <div style="font-weight: 700; color: #34d399; margin-bottom: 6px;">✓ Uspešno posodobljeno:</div>
-          <div>✨ <strong>${mergeResult.addedCount}</strong> novih artiklov dodanih v bazo</div>
-          <div>📦 <strong>${mergeResult.updatedCount}</strong> stanj na policah posodobljenih</div>
-          ${mergeResult.decreasedCount > 0 ? `<div style="color: #f87171; font-weight: 600;">📤 <strong>${mergeResult.decreasedCount}</strong> artiklov z zmanjšano zalogo (izdaje)</div>` : ''}
-          <div>📋 <strong>${mergeResult.addedLogsCount}</strong> novih zapisov v zgodovino premikov</div>
+          <div style="font-weight: 700; color: #34d399; margin-bottom: 6px;">Posodobljeno:</div>
+          <div><strong>${mergeResult.addedCount}</strong> novih artiklov dodanih v bazo</div>
+          <div><strong>${mergeResult.updatedCount}</strong> stanj na policah posodobljenih</div>
+          ${mergeResult.decreasedCount > 0 ? `<div style="color: #f87171; font-weight: 600;"><strong>${mergeResult.decreasedCount}</strong> artiklov z zmanjšano zalogo (izdaje)</div>` : ''}
+          <div><strong>${mergeResult.addedLogsCount}</strong> novih zapisov v zgodovino premikov</div>
           ${newNamesHtml}
         `;
         cancelBtn.textContent = 'Zapri';
@@ -4559,7 +4529,7 @@ async function startBLEReceiving() {
       radar.style.display = 'none';
       summary.style.display = 'block';
       title.textContent = 'BLE zahteva nameščen APK';
-      desc.textContent = 'Brezžična BLE povezava deluje na Android napravi (APK).';
+      desc.textContent = 'Bluetooth povezava deluje na Android napravi (APK).';
     }
   } catch (err) {
     console.warn('BLE Receive error:', err);
@@ -4586,12 +4556,12 @@ async function checkNativeIncomingSync() {
       if (res && res.hasData && res.jsonData) {
         const parsed = JSON.parse(res.jsonData);
         if (parsed && Array.isArray(parsed.items)) {
-          showToast('Prejet nov paket zaloge! Usklajujem...');
+          showToast('Prejet nov paket zaloge. Usklajujem...');
           const result = await DB.mergeSyncData(parsed);
           await refreshInventory();
           await refreshLogs();
           playSuccessBeep();
-          showToast(`✅ Zaloga usklajena! Posodobljenih ${result.updatedCount} stanj.`);
+          showToast(`Zaloga usklajena. Posodobljenih ${result.updatedCount} stanj.`);
         }
       }
     } catch (e) {
@@ -4605,7 +4575,7 @@ window.startBLEReceiving = startBLEReceiving;
 window.cancelBLESync = cancelBLESync;
 
 /* =========================================================================
-   8. GENERIRANJE PDF IZPISOV ZARADI ČRTNIH KOD & ŠKATEL (100% OFFLINE)
+   8. GENERIRANJE PDF IZPISOV
    ========================================================================= */
 function generateBarcodeDataUrl(sku) {
   try {
@@ -4700,7 +4670,7 @@ window.exportCompleteSetsPDF = async function exportCompleteSetsPDF() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Porocilo popolnih kompletov - Stran ${pageNo}`, margin, pageHeight - 8);
+      doc.text(`Skladisce - Porocilo popolnih kompletov - Stran ${pageNo}`, margin, pageHeight - 8);
     }
 
     if (items.length === 0) {
@@ -4724,7 +4694,7 @@ window.exportCompleteSetsPDF = async function exportCompleteSetsPDF() {
       drawFooter(currentPage);
       const fileName = `skladisce-popolni-kompleti-${getDateStamp()}.pdf`;
       await downloadFile(doc.output('blob'), fileName, 'application/pdf');
-      showToast('PDF s popolnimi kompleti uspesno shranjen!');
+      showToast('PDF s popolnimi kompleti shranjen.');
       return;
     }
 
@@ -4832,7 +4802,7 @@ window.exportCompleteSetsPDF = async function exportCompleteSetsPDF() {
 
     const fileName = `skladisce-popolni-kompleti-${getDateStamp()}.pdf`;
     downloadFile(doc.output('blob'), fileName, 'application/pdf');
-    showToast(`PDF s popolnimi kompleti uspešno shranjen!`);
+    showToast(`PDF s popolnimi kompleti shranjen.`);
   } catch (err) {
     console.error('Napaka pri generiranju PDF kompletov:', err);
     showToast('Napaka pri generiranju PDF: ' + err.message);
@@ -4910,7 +4880,7 @@ window.exportIncompleteSetsPDF = async function exportIncompleteSetsPDF() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Skladisce PWA - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 6);
+      doc.text(`Skladisce - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 6);
     }
 
     if (items.length === 0) {
@@ -4934,7 +4904,7 @@ window.exportIncompleteSetsPDF = async function exportIncompleteSetsPDF() {
       drawFooter(currentPage);
       const fileName = `skladisce-nepopolne-skatle-${getDateStamp()}.pdf`;
       await downloadFile(doc.output('blob'), fileName, 'application/pdf');
-      showToast('PDF z nepopolnimi skatlami uspesno shranjen (ni primanjkljajev)!');
+      showToast('PDF z nepopolnimi škatlami shranjen.');
       return;
     }
 
@@ -5057,7 +5027,7 @@ window.exportIncompleteSetsPDF = async function exportIncompleteSetsPDF() {
 
     const fileName = `skladisce-nepopolne-skatle-${getDateStamp()}.pdf`;
     downloadFile(doc.output('blob'), fileName, 'application/pdf');
-    showToast(`PDF z nepopolnimi škatlami uspešno shranjen!`);
+    showToast(`PDF z nepopolnimi škatlami shranjen.`);
   } catch (err) {
     console.error('Napaka pri generiranju PDF nepopolnih škatel:', err);
     showToast('Napaka pri generiranju PDF: ' + err.message);
@@ -5125,7 +5095,7 @@ async function downloadFile(content, fileName, mimeType) {
         mimeType: mimeType || 'application/pdf'
       });
 
-      showToast(`📁 Uspešno shranjeno v Prenose: ${fileName}`);
+      showToast(`Shranjeno v Prenose: ${fileName}`);
       playSuccessBeep();
       return;
     } catch (e) {
