@@ -76,6 +76,7 @@ const WarehouseLabelParser = {
     // Vgrajen katalog znanih skladiščnih artiklov (iz etiket) kot takojšnja referenca
     const knownCatalog = {
       '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 1, box: 'Box 1/1' },
+      '3690514': { name: 'Dining chair ADSLEV beige/n.oak', pieces: 2, box: 'Box 1/1' },
       '3690565': { name: 'Mirror BALSLEV 35x127 w.oak', pieces: 4, box: 'Box 1/1' },
       '3725150': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
       '3759803': { name: 'Stacking chair LARVIK grey', pieces: 24, box: 'Box 1/1' },
@@ -161,10 +162,14 @@ const WarehouseLabelParser = {
     // "Box 2/2"
     // "Colli 1/2"
     for (const line of lines) {
-      const boxMatch = line.match(/\b(?:box|colli)[\s.:]*([0-9]+)\s*[\/|\\]\s*([0-9]+)\b/i);
+      // Primeri: "Box 1/1: 2 pcs", "Box 1/1", "Colli 1/2"
+      const boxMatch = line.match(/\b(?:box|colli)[\s.:]*([0-9]+)\s*[\/|\\]\s*([0-9]+)(?:[\s.:]+([0-9]+)\s*(?:pcs\.?|kom)?)?/i);
       if (boxMatch) {
         boxCurrent = parseInt(boxMatch[1], 10);
         boxTotal = parseInt(boxMatch[2], 10);
+        if (boxMatch[3]) {
+          quantityInBox = parseInt(boxMatch[3], 10);
+        }
         break;
       }
     }
