@@ -793,12 +793,23 @@ function setupBoxOCRScanner() {
   const isNative = isCapacitorNative();
   if (isNative) {
     console.log('⚡ Tečemo v Capacitor Android aplikaciji z Google ML Kit!');
-    btnCapture.textContent = '📸 ZAJEMI ŠKATLO (Google ML Kit)';
+    btnCapture.textContent = '📸 ZAJEMI FOTOGRAFIJO (Google ML Kit)';
     btnCapture.style.background = 'linear-gradient(135deg, #10b981, #059669)';
     btnCapture.style.color = '#fff';
     btnCapture.style.borderColor = '#10b981';
+    btnCapture.style.fontSize = '1.02rem';
+    btnCapture.style.fontWeight = '700';
+    btnCapture.style.padding = '14px';
     btnCapture.addEventListener('click', triggerNativeMLKitScan);
     btnPhoto.addEventListener('click', triggerNativeMLKitGallery);
+
+    // Klik na vizir kamere prav tako sproži takojšen nativen zajem
+    const scanFrame = document.getElementById('scanFrameBox');
+    if (scanFrame) {
+      scanFrame.style.cursor = 'pointer';
+      scanFrame.title = 'Klikni za takojšen zajem s kamero';
+      scanFrame.addEventListener('click', triggerNativeMLKitScan);
+    }
   } else {
     // Spletni način (PWA v brskalniku)
     btnCapture.addEventListener('click', async () => {
@@ -943,10 +954,24 @@ async function processAutoScanFrame(video) {
     }
     autoScanAngleCycle = (autoScanAngleCycle + 1) % 2;
 
-    let parsed = null;
+    // A. Če tečemo v Capacitor nativni Android aplikaciji: uporabi Google ML Kit (15-20ms!)
+    if (isCapacitorNative() && window.Capacitor?.Plugins?.MLKitDirect) {
+      try {
+        const base64 = canvasToTest.toDataURL('image/jpeg', 0.82);
+        const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
+        if (res && res.text) {
+          const p = WarehouseLabelParser.parse(res.text);
+          if (p && p.articleNumber) {
+            parsed = p;
+          }
+        }
+      } catch (e) {
+        console.warn('MLKitDirect auto-scan napaka:', e);
+      }
+    }
 
-    // A. Če je na voljo strojni TPU pospeševalnik (Android ML Kit), uporabi najprej tega (15ms!)
-    if (nativeTextDetector) {
+    // B. Strojni TPU pospeševalnik (Android Shape Detection API / Google Play ML Kit v brskalniku)
+    if (!parsed && nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvasToTest);
         if (blocks && blocks.length > 0) {
@@ -959,14 +984,13 @@ async function processAutoScanFrame(video) {
       } catch (e) {}
     }
 
-    // B. Hitri lokalni WASM-SIMD model (brez hOCR in brez slovarjev)
-    if (!parsed) {
+    // C. Lokalni WASM-SIMD model (zagnan samo v brskalniku, ko ni native aplikacije)
+    if (!parsed && !isCapacitorNative()) {
       let worker = ocrWorker;
       if (!worker) {
         worker = await initOCRWorker();
       }
       if (worker) {
-        // text: true, vsi ostali overhead formati izklopljeni!
         const ret = await worker.recognize(canvasToTest, {}, { text: true, blocks: false, hocr: false, tsv: false });
         const text = ret?.data?.text || '';
         parsed = WarehouseLabelParser.parse(text);
@@ -1127,8 +1151,33 @@ async function processImageWithOCR(canvas) {
   try {
     let parsed = null;
 
-    // A. Poskusi s strojnim TPU
-    if (nativeTextDetector) {
+    // A. Če tečemo v Capacitor z native Google ML Kit (20ms)
+    if (isCapacitorNative() && window.Capacitor?.Plugins?.MLKitDirect) {
+      try {
+        loadingText.textContent = '⚡ Google ML Kit analiza (20ms)...';
+        const base64 = canvas.toDataURL('image/jpeg', 0.90);
+        const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
+        if (res && res.text) {
+          parsed = WarehouseLabelParser.parse(res.text);
+        }
+        if (!parsed || !parsed.articleNumber) {
+          const rot180 = rotateCanvas(canvas, 180);
+          const base64_180 = rot180.toDataURL('image/jpeg', 0.90);
+          const res180 = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64: base64_180 });
+          if (res180 && res180.text) {
+            const p180 = WarehouseLabelParser.parse(res180.text);
+            if (p180 && p180.articleNumber) {
+              parsed = p180;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('MLKitDirect napaka:', e);
+      }
+    }
+
+    // B. Poskusi s strojnim TPU v brskalniku
+    if (!parsed && nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvas);
         if (blocks && blocks.length > 0) {
