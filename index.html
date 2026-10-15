@@ -92,13 +92,21 @@
       <div class="camera-preview-container">
         <video id="cameraVideo" playsinline autoplay muted></video>
         <canvas id="ocrPreprocessCanvas" style="display: none;"></canvas>
+        <div class="camera-status-bar">
+          <button id="btnToggleAutoScan" class="auto-scan-toggle active" title="Vklopi ali izklopi samodejno branje">
+            <span class="live-pulse-dot"></span>
+            <span id="autoScanStatusText">SAMODEJNO BRANJE: VKLOP</span>
+          </button>
+          <span id="scanLiveIndicator" class="scan-state-pill">🔍 Iščem škatlo...</span>
+        </div>
         <div class="scanner-overlay">
-          <div class="scan-frame box-frame">
+          <div class="scan-frame box-frame" id="scanFrameBox">
+            <div class="scan-laser-line" id="scanLaserLine"></div>
             <div class="frame-corner top-left"></div>
             <div class="frame-corner top-right"></div>
             <div class="frame-corner bottom-left"></div>
             <div class="frame-corner bottom-right"></div>
-            <div class="frame-label">Usmeri v napis na škatli</div>
+            <div class="frame-label" id="frameLabelText">Usmeri v etiketo (pokončno ali obrnjeno)</div>
           </div>
         </div>
         <!-- Nalagalnik obdelave (TPU / Nevronska mreža) -->
@@ -112,14 +120,14 @@
 
       <!-- Glavni kontrolni gumbi -->
       <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
-        <button class="btn-primary" id="btnCaptureOCR" style="margin-top:0; font-size: 1.05rem; padding: 14px;">
-          📸 PREBERI ŠKATLO ZDAJ
+        <button class="btn-secondary" id="btnCaptureOCR" style="margin-top:0; font-size: 0.92rem; padding: 10px; border-color: rgba(56, 189, 248, 0.4); color: var(--primary);">
+          📸 Prisili ročni zajem (opcijsko)
         </button>
 
         <div style="display: flex; gap: 8px;">
           <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display: none;">
           <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin-top:0; flex: 1;">
-            📷 Posnemi / Izberi sliko
+            🖼️ Izberi sliko iz galerije
           </button>
           <button class="btn-secondary" id="btnToggleCamera" style="margin-top:0; width: auto; padding: 0 14px;" title="Vklopi / Izklopi kamero">
             🔄

@@ -433,6 +433,14 @@ let ocrWorkerPromise = null;
 let currentScannedBox = null;
 let currentMultiplier = 1;
 
+// Nastavitve za samodejno branje v realnem času
+let isAutoScanEnabled = true;
+let isScanLoopRunning = false;
+let isProcessingFrame = false;
+let lastDetectedSKU = null;
+let lastDetectedTime = 0;
+let autoScanAngleCycle = 0; // Menja med 0° in 180° za narobe obrnjene škatle
+
 /**
  * Predhodno ogrevanje OCR nevronske mreže v ozadju (TPU / WebAssembly SIMD)
  */
@@ -446,32 +454,108 @@ async function initOCRWorker() {
         return null;
       }
 
-      console.log('⚡ Zaganjam nevronski OCR pospeševalnik (LSTM/SIMD)...');
+      console.log('⚡ Zaganjam hitri kvantizirani nevronski model (tessdata_fast + SIMD)...');
       const worker = await Tesseract.createWorker('eng', 1, {
+        langPath: './',
+        gzip: true,
         logger: (m) => {
           if (m.status === 'recognizing text') {
             const pct = Math.round((m.progress || 0) * 100);
             const textEl = document.getElementById('ocrLoadingText');
-            if (textEl) textEl.textContent = `⚡ TPU analiza besedila: ${pct}%`;
+            if (textEl) textEl.textContent = `⚡ TPU pospešena obdelava: ${pct}%`;
           }
         }
       });
 
-      // PSM 6: Predpostavka enovitega bloka besedila (3-5x hitreje od privzetega OSD!)
+      // PSM 6 (enovit blok) + whitelist znakov za 2x hitrejše izvajanje
       await worker.setParameters({
-        tessedit_pageseg_mode: '6'
+        tessedit_pageseg_mode: '6',
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/:.-xX, '
       });
 
       ocrWorker = worker;
-      console.log('✓ OCR nevronski model je pripravljen za takojšnje branje škatel.');
+      console.log('✓ Hitri nevronski model je pripravljen.');
       return worker;
     } catch (err) {
-      console.warn('Inicijalizacija OCR nevronskega modela:', err);
+      console.warn('Inicijalizacija OCR modela:', err);
       return null;
     }
   })();
 
   return ocrWorkerPromise;
+}
+
+/**
+ * Zvočni pisk ob uspešnem zaznavanju škatle (Web Audio API - deluje 100% offline)
+ */
+function playSuccessBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1750, audioCtx.currentTime);
+    osc.frequency.setValueAtTime(2400, audioCtx.currentTime + 0.05);
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.13);
+  } catch (e) {
+    // AudioContext blocked or not supported
+  }
+}
+
+/**
+ * Vizualni utrip vizirja ob prepoznavi škatle
+ */
+function triggerDetectionFlash() {
+  const frame = document.getElementById('scanFrameBox');
+  const label = document.getElementById('frameLabelText');
+  if (frame) {
+    frame.classList.add('detected');
+    if (label) label.textContent = '✓ Prepoznano!';
+    setTimeout(() => {
+      frame.classList.remove('detected');
+      if (label) label.textContent = 'Usmeri v etiketo (pokončno ali obrnjeno)';
+    }, 1500);
+  }
+}
+
+/**
+ * Obračanje platna za zaznavo narobe obrnjenih (180°) in ležečih (90°) škatel
+ */
+function rotateCanvas(sourceCanvas, degrees) {
+  const rotated = document.createElement('canvas');
+  const ctx = rotated.getContext('2d');
+  if (degrees === 180) {
+    rotated.width = sourceCanvas.width;
+    rotated.height = sourceCanvas.height;
+    ctx.translate(sourceCanvas.width, sourceCanvas.height);
+    ctx.rotate(Math.PI);
+    ctx.drawImage(sourceCanvas, 0, 0);
+  } else if (degrees === 90) {
+    rotated.width = sourceCanvas.height;
+    rotated.height = sourceCanvas.width;
+    ctx.translate(sourceCanvas.height, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(sourceCanvas, 0, 0);
+  } else if (degrees === 270) {
+    rotated.width = sourceCanvas.height;
+    rotated.height = sourceCanvas.width;
+    ctx.translate(0, sourceCanvas.width);
+    ctx.rotate((3 * Math.PI) / 2);
+    ctx.drawImage(sourceCanvas, 0, 0);
+  } else {
+    rotated.width = sourceCanvas.width;
+    rotated.height = sourceCanvas.height;
+    ctx.drawImage(sourceCanvas, 0, 0);
+  }
+  return rotated;
 }
 
 function setupBoxOCRScanner() {
@@ -481,8 +565,28 @@ function setupBoxOCRScanner() {
   const fileInput = document.getElementById('ocrFileInput');
   const btnManual = document.getElementById('btnManualScan');
   const manualInput = document.getElementById('manualScanInput');
+  const btnToggleAuto = document.getElementById('btnToggleAutoScan');
+  const autoText = document.getElementById('autoScanStatusText');
 
-  // Gumb za takojšen zajem in OCR iz kamere
+  // Preklop samodejnega branja (ON / OFF)
+  if (btnToggleAuto) {
+    btnToggleAuto.addEventListener('click', () => {
+      isAutoScanEnabled = !isAutoScanEnabled;
+      if (isAutoScanEnabled) {
+        btnToggleAuto.classList.remove('disabled');
+        btnToggleAuto.classList.add('active');
+        if (autoText) autoText.textContent = 'SAMODEJNO BRANJE: VKLOP';
+        showToast('🟢 Samodejno branje vklopljeno');
+      } else {
+        btnToggleAuto.classList.remove('active');
+        btnToggleAuto.classList.add('disabled');
+        if (autoText) autoText.textContent = 'SAMODEJNO BRANJE: PAVZA';
+        showToast('⏸️ Samodejno branje začasno ustavljeno');
+      }
+    });
+  }
+
+  // Gumb za ročni zajem (opcijsko)
   btnCapture.addEventListener('click', async () => {
     const video = document.getElementById('cameraVideo');
     if (!cameraStream || video.readyState < video.HAVE_CURRENT_DATA) {
@@ -515,11 +619,9 @@ function setupBoxOCRScanner() {
 
     const img = new Image();
     img.onload = async () => {
-      // Pripravi obdelan canvas za visoko ločljivostno sliko
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      // Omeji velikost na optimalno za OCR (cca 1200px širine)
-      const scale = Math.min(1, 1400 / img.width);
+      const scale = Math.min(1, 1000 / img.width);
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -544,6 +646,120 @@ function setupBoxOCRScanner() {
   });
 }
 
+/**
+ * Zagon in ustavitev zanke samodejnega prepoznavanja
+ */
+function startAutoScanLoop() {
+  if (isScanLoopRunning) return;
+  isScanLoopRunning = true;
+  runAutoScanTick();
+}
+
+function stopAutoScanLoop() {
+  isScanLoopRunning = false;
+}
+
+/**
+ * Ena ponovitev v zanki samodejnega branja
+ */
+async function runAutoScanTick() {
+  if (!isScanLoopRunning) return;
+
+  const video = document.getElementById('cameraVideo');
+  const resultCard = document.getElementById('scanResultCard');
+  const scannerTab = document.getElementById('tab-scanner');
+
+  const isScannerVisible = scannerTab && scannerTab.style.display !== 'none';
+  const isVideoReady = video && video.readyState >= 2 && !video.paused;
+  const isResultOpen = resultCard && resultCard.style.display === 'flex';
+
+  if (isAutoScanEnabled && isScannerVisible && isVideoReady && !isResultOpen && !isProcessingFrame) {
+    const now = performance.now();
+    // 1.5s premor pred ponovnim skeniranjem
+    if (now - lastDetectedTime > 1500) {
+      await processAutoScanFrame(video);
+    }
+  }
+
+  // Preveri naslednji frame čez 180ms
+  if (isScanLoopRunning) {
+    setTimeout(runAutoScanTick, 180);
+  }
+}
+
+/**
+ * Analiza sličice v realnem času z avtomatskim obračanjem (0° / 180°)
+ */
+async function processAutoScanFrame(video) {
+  if (isProcessingFrame) return;
+  isProcessingFrame = true;
+
+  const liveBadge = document.getElementById('scanLiveIndicator');
+
+  try {
+    let worker = ocrWorker;
+    if (!worker) {
+      worker = await initOCRWorker();
+    }
+    if (!worker) {
+      isProcessingFrame = false;
+      return;
+    }
+
+    if (liveBadge) liveBadge.classList.add('analyzing');
+
+    // 1. Izreži območje vizirja z optimalno ločljivostjo (720px)
+    const frameCanvas = getCroppedCanvasFromVideo(video);
+
+    // 2. Izmenično testiramo 0° in 180° za škatle, obrnjene na glavo
+    let canvasToTest = frameCanvas;
+    if (autoScanAngleCycle === 1) {
+      canvasToTest = rotateCanvas(frameCanvas, 180);
+    }
+    autoScanAngleCycle = (autoScanAngleCycle + 1) % 2;
+
+    const ret = await worker.recognize(canvasToTest);
+    const text = ret?.data?.text || '';
+    let parsed = WarehouseLabelParser.parse(text);
+
+    // Če na 0° nismo našli šifre artikla, takoj poskusi še 180°
+    if (!parsed.articleNumber && canvasToTest === frameCanvas) {
+      const invertedCanvas = rotateCanvas(frameCanvas, 180);
+      const retInv = await worker.recognize(invertedCanvas);
+      const parsedInv = WarehouseLabelParser.parse(retInv?.data?.text || '');
+      if (parsedInv.articleNumber) {
+        parsed = parsedInv;
+      }
+    }
+
+    // 3. Če je artikel najden, sproži prepoznavo!
+    if (parsed && parsed.articleNumber) {
+      const now = performance.now();
+      // Prepreči takojšnje podvajanje iste škatle
+      if (parsed.articleNumber === lastDetectedSKU && (now - lastDetectedTime) < 2500) {
+        isProcessingFrame = false;
+        return;
+      }
+
+      lastDetectedSKU = parsed.articleNumber;
+      lastDetectedTime = now;
+
+      // Zvočni in haptični signal
+      playSuccessBeep();
+      triggerDetectionFlash();
+
+      // Prikaz kartice za potrditev
+      await handleBoxScanResult(parsed);
+    }
+
+  } catch (err) {
+    console.debug('Napaka pri analizi sličice:', err);
+  } finally {
+    isProcessingFrame = false;
+    if (liveBadge) liveBadge.classList.remove('analyzing');
+  }
+}
+
 async function startCamera() {
   const video = document.getElementById('cameraVideo');
 
@@ -558,6 +774,11 @@ async function startCamera() {
 
     cameraStream = stream;
     video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.play().catch(() => {});
+      startAutoScanLoop();
+    };
   } catch (err) {
     console.warn('Kamere ni bilo mogoče zagnati:', err);
     showToast('Dostop do kamere ni na voljo. Uporabite gumb za fotografijo spodaj.');
@@ -565,6 +786,7 @@ async function startCamera() {
 }
 
 function stopCamera() {
+  stopAutoScanLoop();
   if (cameraStream) {
     cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
@@ -574,8 +796,8 @@ function stopCamera() {
 }
 
 /**
- * Izreže zgolj območje vizirja za škatlo (cca 70% širine, 45% višine)
- * To zmanjša število slikovnih pik za 80% in omogoči bliskovit OCR!
+ * Izreže zgolj območje vizirja za škatlo (cca 72% širine, 45% višine)
+ * In pomanjša na 720px za bliskovit OCR brez zakasnitev!
  */
 function getCroppedCanvasFromVideo(video) {
   const canvas = document.createElement('canvas');
@@ -584,14 +806,19 @@ function getCroppedCanvasFromVideo(video) {
   const vw = video.videoWidth || 1280;
   const vh = video.videoHeight || 720;
 
-  const cropW = Math.round(vw * 0.70);
+  const cropW = Math.round(vw * 0.72);
   const cropH = Math.round(vh * 0.45);
   const cropX = Math.round((vw - cropW) / 2);
   const cropY = Math.round((vh - cropH) / 2);
 
-  canvas.width = cropW;
-  canvas.height = cropH;
-  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  // Optimizacija: širina max 720px (zmanjša število pikslov za 80%!)
+  const targetW = Math.min(cropW, 720);
+  const scale = targetW / cropW;
+  const targetH = Math.round(cropH * scale);
+
+  canvas.width = targetW;
+  canvas.height = targetH;
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
 
   // Povečaj kontrast za odstranitev odbojev prozorne folije in rjavega kartona
   preprocessCanvasForOCR(canvas, ctx);
@@ -633,16 +860,15 @@ function preprocessCanvasForOCR(canvas, ctx) {
 }
 
 /**
- * Glavna funkcija za zagon OCR in razčlenitev podatkov o škatli
+ * Ročna funkcija za zagon OCR in razčlenitev podatkov o škatli
  */
 async function processImageWithOCR(canvas) {
   const overlay = document.getElementById('ocrLoadingOverlay');
   const loadingText = document.getElementById('ocrLoadingText');
   overlay.style.display = 'flex';
-  loadingText.textContent = '⚡ TPU obdelava slike škatle...';
+  loadingText.textContent = '⚡ TPU analiza slike škatle...';
 
   try {
-    // Zagotovi pripravljen nevronski pospeševalnik
     let worker = ocrWorker;
     if (!worker) {
       loadingText.textContent = '⚡ Pripravljam nevronski model...';
@@ -655,11 +881,31 @@ async function processImageWithOCR(canvas) {
 
     const t0 = performance.now();
     const ret = await worker.recognize(canvas);
-    const t1 = performance.now();
-    console.log(`OCR zaključen v ${Math.round(t1 - t0)}ms. Besedilo:`, ret.data.text);
+    let parsed = WarehouseLabelParser.parse(ret.data.text || '');
 
-    // Razčleni etiketo s pomočjo WarehouseLabelParser
-    const parsed = WarehouseLabelParser.parse(ret.data.text);
+    // Če ne najde šifre na 0°, preveri še 180° in 90°
+    if (!parsed.articleNumber) {
+      loadingText.textContent = '🔄 Preverjam obrnjeno škatlo (180°)...';
+      const rotated180 = rotateCanvas(canvas, 180);
+      const ret180 = await worker.recognize(rotated180);
+      const parsed180 = WarehouseLabelParser.parse(ret180.data.text || '');
+      if (parsed180.articleNumber) {
+        parsed = parsed180;
+      } else {
+        const rotated90 = rotateCanvas(canvas, 90);
+        const ret90 = await worker.recognize(rotated90);
+        const parsed90 = WarehouseLabelParser.parse(ret90.data.text || '');
+        if (parsed90.articleNumber) {
+          parsed = parsed90;
+        }
+      }
+    }
+
+    const t1 = performance.now();
+    console.log(`OCR zaključen v ${Math.round(t1 - t0)}ms. Besedilo:`, parsed);
+
+    playSuccessBeep();
+    triggerDetectionFlash();
     await handleBoxScanResult(parsed);
 
   } catch (err) {
@@ -691,6 +937,13 @@ async function handleBoxScanResult(parsed) {
   renderBoxResultCard(existingItem);
 }
 
+window.closeBoxResultCard = function() {
+  const resultCard = document.getElementById('scanResultCard');
+  if (resultCard) resultCard.style.display = 'none';
+  currentScannedBox = null;
+  lastDetectedTime = performance.now(); // 1.5s cooldown
+};
+
 function renderBoxResultCard(existingItem) {
   const resultCard = document.getElementById('scanResultCard');
   const parsed = currentScannedBox;
@@ -721,8 +974,11 @@ function renderBoxResultCard(existingItem) {
 
   resultCard.innerHTML = `
     <div class="box-result-header">
-      <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">ŠIFRA ARTIKLA:</div>
-      <div class="box-sku-highlight">${escapeHtml(sku)}</div>
+      <div style="display:flex; align-items:baseline; gap: 8px;">
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">ŠIFRA ARTIKLA:</span>
+        <span class="box-sku-highlight">${escapeHtml(sku)}</span>
+      </div>
+      <button type="button" class="btn-card-close" onclick="closeBoxResultCard()" title="Zapri in nadaljuj skeniranje">✕</button>
     </div>
 
     <div style="display: flex; flex-direction: column; gap: 4px; margin: 4px 0;">
@@ -767,6 +1023,9 @@ function renderBoxResultCard(existingItem) {
         ➕ Dodaj ta artikel v skladišče
       </button>
     ` : ''}
+    <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 4px; padding: 10px; font-size: 0.85rem; border-color: rgba(255,255,255,0.15);">
+      ✕ Zapri in skeniraj naslednjo škatlo
+    </button>
   `;
 }
 
