@@ -206,7 +206,11 @@ function renderItemsList() {
     return;
   }
 
-  listEl.innerHTML = filtered.map(item => {
+  // Optimizacija za 10.000+ artiklov: ne izrišemo vseh naenkrat v DOM, ampak prvih 60 zadetkov
+  const displayLimit = 60;
+  const displayed = filtered.slice(0, displayLimit);
+
+  let html = displayed.map(item => {
     const qty = Number(item.quantity) || 0;
     const minQty = Number(item.minQuantity) || 0;
     
@@ -246,6 +250,16 @@ function renderItemsList() {
       </div>
     `;
   }).join('');
+
+  if (filtered.length > displayLimit) {
+    html += `
+      <div style="text-align: center; padding: 12px; font-size: 0.85rem; color: var(--text-muted);">
+        Prikazanih prvih ${displayLimit} od skupaj <strong>${filtered.length}</strong> ujemajočih se artiklov. Uporabite iskalnik zgoraj za ožji izbor.
+      </div>
+    `;
+  }
+
+  listEl.innerHTML = html;
 }
 
 /* =========================================================================
