@@ -1,0 +1,28 @@
+{
+  "name": "sharp-nobel",
+  "version": "1.0.0",
+  "description": "Sodobna, lahka in popolnoma samostojna mobilna spletna aplikacija (**Progressive Web App**) za upravljanje z zalogo skladišča na telefonu, optimizirana za delovanje **brez internetne povezave (100% offline)**.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lanncek55/skladisce-pwa.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/lanncek55/skladisce-pwa/issues"
+  },
+  "homepage": "https://github.com/lanncek55/skladisce-pwa#readme",
+  "dependencies": {
+    "@capacitor-mlkit/text-recognition": "^8.2.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/camera": "^8.2.5",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3"
+  }
+}

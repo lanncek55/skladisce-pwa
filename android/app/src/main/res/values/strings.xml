@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Skladisce</string>
+    <string name="title_activity_main">Skladisce</string>
+    <string name="package_name">si.skladisce.app</string>
+    <string name="custom_url_scheme">si.skladisce.app</string>
+</resources>

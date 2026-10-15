@@ -580,6 +580,99 @@ function rotateCanvas(sourceCanvas, degrees) {
   return rotated;
 }
 
+function isCapacitorNative() {
+  return typeof window !== 'undefined' &&
+         window.Capacitor &&
+         typeof window.Capacitor.isNativePlatform === 'function' &&
+         window.Capacitor.isNativePlatform();
+}
+
+async function triggerNativeMLKitScan() {
+  try {
+    const plugins = window.Capacitor?.Plugins;
+    if (!plugins || !plugins.Camera || !plugins.TextRecognition) {
+      showToast('ML Kit vtičnik ni na voljo.');
+      return;
+    }
+
+    const photo = await plugins.Camera.getPhoto({
+      quality: 95,
+      allowEditing: false,
+      resultType: 'uri',
+      source: 'CAMERA'
+    });
+
+    if (!photo || !photo.path) return;
+
+    const overlay = document.getElementById('ocrLoadingOverlay');
+    const loadingText = document.getElementById('ocrLoadingText');
+    if (overlay) overlay.style.display = 'flex';
+    if (loadingText) loadingText.textContent = '⚡ Google ML Kit prepoznava (20ms)...';
+
+    const t0 = performance.now();
+    const result = await plugins.TextRecognition.processImage({
+      path: photo.path
+    });
+    const t1 = performance.now();
+    console.log(`Google ML Kit zaključen v ${Math.round(t1 - t0)}ms. Besedilo:`, result.text);
+
+    if (overlay) overlay.style.display = 'none';
+
+    const parsed = WarehouseLabelParser.parse(result.text || '');
+    playSuccessBeep();
+    triggerDetectionFlash();
+    await handleBoxScanResult(parsed);
+
+  } catch (err) {
+    const overlay = document.getElementById('ocrLoadingOverlay');
+    if (overlay) overlay.style.display = 'none';
+    if (err && err.message && (err.message.includes('cancel') || err.message.includes('User cancelled'))) {
+      return;
+    }
+    console.error('ML Kit napaka:', err);
+    showToast('Napaka pri branju kamere: ' + (err.message || err));
+  }
+}
+
+async function triggerNativeMLKitGallery() {
+  try {
+    const plugins = window.Capacitor?.Plugins;
+    if (!plugins || !plugins.Camera || !plugins.TextRecognition) {
+      document.getElementById('ocrFileInput').click();
+      return;
+    }
+
+    const photo = await plugins.Camera.getPhoto({
+      quality: 95,
+      allowEditing: false,
+      resultType: 'uri',
+      source: 'PHOTOS'
+    });
+
+    if (!photo || !photo.path) return;
+
+    const overlay = document.getElementById('ocrLoadingOverlay');
+    const loadingText = document.getElementById('ocrLoadingText');
+    if (overlay) overlay.style.display = 'flex';
+    if (loadingText) loadingText.textContent = '⚡ Google ML Kit analiza slike...';
+
+    const result = await plugins.TextRecognition.processImage({
+      path: photo.path
+    });
+
+    if (overlay) overlay.style.display = 'none';
+
+    const parsed = WarehouseLabelParser.parse(result.text || '');
+    playSuccessBeep();
+    triggerDetectionFlash();
+    await handleBoxScanResult(parsed);
+
+  } catch (err) {
+    const overlay = document.getElementById('ocrLoadingOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+}
+
 function setupBoxOCRScanner() {
   const btnCapture = document.getElementById('btnCaptureOCR');
   const btnToggle = document.getElementById('btnToggleCamera');
@@ -589,6 +682,35 @@ function setupBoxOCRScanner() {
   const manualInput = document.getElementById('manualScanInput');
   const btnToggleAuto = document.getElementById('btnToggleAutoScan');
   const autoText = document.getElementById('autoScanStatusText');
+
+  // Preveri ali tečemo v Capacitor nativni aplikaciji (Google ML Kit)
+  const isNative = isCapacitorNative();
+  if (isNative) {
+    console.log('⚡ Tečemo v Capacitor Android aplikaciji z Google ML Kit!');
+    btnCapture.textContent = '📸 ZAJEMI ŠKATLO (Google ML Kit)';
+    btnCapture.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+    btnCapture.style.color = '#fff';
+    btnCapture.style.borderColor = '#10b981';
+    btnCapture.addEventListener('click', triggerNativeMLKitScan);
+    btnPhoto.addEventListener('click', triggerNativeMLKitGallery);
+  } else {
+    // Spletni način (PWA v brskalniku)
+    btnCapture.addEventListener('click', async () => {
+      const video = document.getElementById('cameraVideo');
+      if (!cameraStream || video.readyState < video.HAVE_CURRENT_DATA) {
+        showToast('Kamera se še zaganja...');
+        await startCamera();
+        return;
+      }
+
+      const { canvas } = getCroppedCanvasFromVideo(video, 1000);
+      await processImageWithOCR(canvas);
+    });
+
+    btnPhoto.addEventListener('click', () => {
+      fileInput.click();
+    });
+  }
 
   // Preklop samodejnega branja (ON / OFF)
   if (btnToggleAuto) {
@@ -607,33 +729,6 @@ function setupBoxOCRScanner() {
       }
     });
   }
-
-  // Gumb za ročni zajem (opcijsko)
-  btnCapture.addEventListener('click', async () => {
-    const video = document.getElementById('cameraVideo');
-    if (!cameraStream || video.readyState < video.HAVE_CURRENT_DATA) {
-      showToast('Kamera se še zaganja...');
-      await startCamera();
-      return;
-    }
-
-    const { canvas } = getCroppedCanvasFromVideo(video, 1000);
-    await processImageWithOCR(canvas);
-  });
-
-  // Vklop / Izklop kamere
-  btnToggle.addEventListener('click', () => {
-    if (cameraStream) {
-      stopCamera();
-    } else {
-      startCamera();
-    }
-  });
-
-  // Fotografija / Izbira slike iz galerije
-  btnPhoto.addEventListener('click', () => {
-    fileInput.click();
-  });
 
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
