@@ -67,6 +67,23 @@
         </button>
         <button class="btn-pdf-pill" id="btnQuickDispatch" style="border-color: #f59e0b; color: #fbbf24;" title="Odpri pomoč pri izdaji blaga po računu">
           <span>🧾</span> Pomoč pri izdaji (Račun)
+      </div>
+
+      <!-- Prevzemna pošiljka (Prejemanje robe v teku) -->
+      <div id="receivingBanner" class="receiving-session-banner" style="display: flex; justify-content: space-between; align-items: center; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="live-pulse-dot" style="background: #10b981; width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
+          <div>
+            <div style="font-weight: 700; font-size: 0.88rem; color: #fff;" id="receivingBannerTitle">
+              📥 Prevzem pošiljke (V teku)
+            </div>
+            <div style="font-size: 0.74rem; color: var(--text-muted);" id="receivingBannerSub">
+              Prevzeto: 0 škatel &bull; Novo kompletiranih: 0
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
+          🏁 Zaključi prevzem
         </button>
       </div>
 
@@ -589,6 +606,130 @@
         <button type="button" class="btn-secondary" id="btnCancelBLESync" style="margin: 0; flex: 1; padding: 12px;">
           Prekliči
         </button>
+      </div>
+    </div>
+  <!-- MODAL: PREMESTITEV MED REGALI -->
+  <div class="modal-backdrop" id="modalMoveStock" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.3rem;">🔀</span>
+          <h3 class="modal-title">Premestitev med regali</h3>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseMoveStockModal">&times;</button>
+      </div>
+      <form id="formMoveStock">
+        <input type="hidden" id="moveItemSku">
+        
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 12px;">
+          <div style="font-weight: 700; font-size: 0.95rem; color: #fff;" id="moveItemName">Artikel</div>
+          <div style="font-size: 0.78rem; color: var(--primary); font-family: monospace;" id="moveItemSkuDisplay"># 3600123</div>
+        </div>
+
+        <div class="form-group" id="moveBoxSelectGroup" style="display: none;">
+          <label class="form-label" for="moveBoxNum">Katero škatlo premikaš?</label>
+          <select id="moveBoxNum" class="form-control"></select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="moveFromShelf">Iz regala (trenutno) *</label>
+            <select id="moveFromShelf" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="moveToShelf">Na regal (cilj) *</label>
+            <input type="text" id="moveToShelf" class="form-control" placeholder="npr. Regal P-09" required list="shelfSuggestions">
+            <datalist id="shelfSuggestions"></datalist>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="moveAmount">Količina za premestitev (škatel) *</label>
+          <input type="number" id="moveAmount" class="form-control" min="1" value="1" required style="font-size: 1.1rem; font-weight: 700; text-align: center;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="moveNote">Opomba ob premestitvi</label>
+          <input type="text" id="moveNote" class="form-control" placeholder="npr. Preliv / rezerva">
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 14px;">
+          <button type="button" class="btn-secondary" id="btnCancelMoveStock" style="margin: 0; flex: 1;">Prekliči</button>
+          <button type="submit" class="btn-primary" style="margin: 0; flex: 2; background: linear-gradient(135deg, #38bdf8, #0284c7);">
+            🔀 Potrdi premestitev
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ZAKLJUČEK IN POROČILO PREVZEMA POŠILJKE -->
+  <div class="modal-backdrop" id="modalReceivingBatch" style="display: none;">
+    <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.3rem;">📥</span>
+          <div>
+            <h3 class="modal-title" id="receivingModalTitle">Prevzem pošiljke</h3>
+            <div style="font-size:0.75rem; color:var(--text-muted);" id="receivingModalDate">Začetek prevzema: danes</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseReceivingModal">&times;</button>
+      </div>
+
+      <!-- Hitra statistika pošiljke -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 10px 0;">
+        <div style="background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; text-align: center;">
+          <div style="font-size: 0.7rem; color: var(--text-muted);">Skupaj škatel</div>
+          <div style="font-size: 1.25rem; font-weight: 800; color: #fff;" id="recStatTotalBoxes">0</div>
+        </div>
+        <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 8px; text-align: center;">
+          <div style="font-size: 0.7rem; color: #10b981; font-weight: 600;">🎉 Kompletirano</div>
+          <div style="font-size: 1.25rem; font-weight: 800; color: #10b981;" id="recStatCompleted">0</div>
+        </div>
+        <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px; text-align: center;">
+          <div style="font-size: 0.7rem; color: #fbbf24; font-weight: 600;">⚠️ Primanjkljaj</div>
+          <div style="font-size: 1.25rem; font-weight: 800; color: #fbbf24;" id="recStatMissing">0</div>
+        </div>
+      </div>
+
+      <!-- Seznam kompletiranih artiklov -->
+      <div id="recCompletedSection" style="margin-top: 10px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #10b981; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <span>🎉</span> Novo kompletirane garniture (dopolnjene s staro zalogo):
+        </div>
+        <div id="recCompletedList" style="display: flex; flex-direction: column; gap: 6px;"></div>
+      </div>
+
+      <!-- Seznam primanjkljajev / nepopolnih škatel -->
+      <div id="recMissingSection" style="margin-top: 14px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <span>⚠️</span> Primanjkljaji v tej pošiljki (nepopolne škatle):
+        </div>
+        <div id="recMissingList" style="display: flex; flex-direction: column; gap: 6px;"></div>
+      </div>
+
+      <!-- Seznam vseh prevzetih škatel -->
+      <div style="margin-top: 14px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+          📦 Seznam vseh prevzetih postavk v tej pošiljki:
+        </div>
+        <div id="recAllReceivedList" style="display: flex; flex-direction: column; gap: 5px; max-height: 180px; overflow-y: auto;"></div>
+      </div>
+
+      <!-- Gumbi za izvoz in zaključek -->
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border);">
+        <button type="button" class="btn-primary" id="btnExportReceivingPDF" style="margin: 0; background: linear-gradient(135deg, #38bdf8, #0284c7);">
+          📄 Prenesi PDF zapisnik prevzema
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn-secondary" id="btnKeepReceiving" style="margin: 0; flex: 1;">
+            Nadaljuj s prevzemom
+          </button>
+          <button type="button" class="btn-secondary" id="btnFinishReceivingSession" style="margin: 0; flex: 1; border-color: rgba(16, 185, 129, 0.5); color: #10b981;">
+            ✓ Zaključi pošiljko
+          </button>
+        </div>
       </div>
     </div>
   </div>

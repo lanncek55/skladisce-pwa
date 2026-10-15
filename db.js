@@ -739,6 +739,85 @@ const DB = {
     });
   },
 
+  /**
+   * Premestitev zaloge posamezne škatle med dvema regaloma (brez spremembe celotne zaloge)
+   */
+  async moveStock(sku, boxNum, fromShelf, toShelf, amount, note = '') {
+    const cleanSku = String(sku).trim();
+    const bNum = Math.max(1, parseInt(boxNum, 10) || 1);
+    const moveQty = Math.max(1, parseInt(amount, 10) || 1);
+    const fromS = String(fromShelf).trim();
+    const toS = String(toShelf).trim();
+
+    if (!fromS || !toS) throw new Error('Izvorna in ciljna lokacija sta obvezni.');
+    if (fromS.toLowerCase() === toS.toLowerCase()) throw new Error('Izvorna in ciljna lokacija ne moreta biti enaki.');
+
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      const artReq = artStore.get(cleanSku);
+      artReq.onsuccess = () => {
+        const art = artReq.result;
+        if (!art) {
+          reject(new Error(`Artikel s šifro ${cleanSku} ne obstaja.`));
+          return;
+        }
+
+        const fromId = `${cleanSku}_b${bNum}_${fromS}`;
+        const toId = `${cleanSku}_b${bNum}_${toS}`;
+
+        const fromReq = stockStore.get(fromId);
+        fromReq.onsuccess = () => {
+          const fromLoc = fromReq.result;
+          if (!fromLoc || fromLoc.count < moveQty) {
+            reject(new Error(`Na lokaciji "${fromS}" ni dovolj zaloge (na voljo: ${fromLoc ? fromLoc.count : 0}, premakniti želite: ${moveQty}).`));
+            return;
+          }
+
+          fromLoc.count -= moveQty;
+          fromLoc.lastUpdated = new Date().toISOString();
+          stockStore.put(fromLoc);
+
+          const toReq = stockStore.get(toId);
+          toReq.onsuccess = () => {
+            const toLoc = toReq.result || {
+              id: toId,
+              sku: cleanSku,
+              boxNum: bNum,
+              shelf: toS,
+              count: 0,
+              isPrimary: false,
+              lastUpdated: new Date().toISOString()
+            };
+
+            toLoc.count += moveQty;
+            toLoc.lastUpdated = new Date().toISOString();
+            stockStore.put(toLoc);
+
+            logStore.add({
+              sku: cleanSku,
+              itemName: art.name,
+              boxNum: bNum,
+              shelf: `${fromS} ➔ ${toS}`,
+              changeType: 'adjust',
+              changeAmount: 0,
+              resultingQty: 0,
+              note: (note || 'Premestitev med regali') + ` (${moveQty}x Šk.${bNum} iz ${fromS} na ${toS})`,
+              timestamp: new Date().toISOString()
+            });
+          };
+        };
+      };
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
   async getAllLogs() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
