@@ -845,6 +845,35 @@ const DB = {
   },
 
   /**
+   * Izbriše vse artikle in zaloge po regalih iz skladišča
+   */
+  async clearAllItems() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['articles', 'stock_locations', 'logs'], 'readwrite');
+      const artStore = tx.objectStore('articles');
+      const stockStore = tx.objectStore('stock_locations');
+      const logStore = tx.objectStore('logs');
+
+      artStore.clear();
+      stockStore.clear();
+
+      logStore.add({
+        sku: 'SYS-CLEAR',
+        itemName: 'Baza artiklov izpraznjena',
+        changeType: 'delete',
+        changeAmount: 0,
+        resultingQty: 0,
+        note: 'Izbris vseh artiklov in lokacij iz skladišča',
+        timestamp: new Date().toISOString()
+      });
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  /**
    * Uveljavi rezultate inventure v stock_locations
    */
   async applyAuditResults(entries) {

@@ -40,10 +40,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 8. Takojšnje prednalaganje nevronskega OCR pospeševalnika v ozadju
   initOCRWorker();
 
-  // 9. Naloži podatke iz IndexedDB (če je nova baza sveža in prazna, naloži začetne vzorčne artikle)
+  // 9. Naloži podatke iz IndexedDB (le če je čisto prvi zagon in še ni bilo inicializirano ali izbrisano)
+  const isDemoSeeded = localStorage.getItem('skladisce_demo_seeded');
   const initialItems = await DB.getAllItems();
-  if (!initialItems || initialItems.length === 0) {
+  if ((!initialItems || initialItems.length === 0) && !isDemoSeeded) {
     await DB.seedDemoData();
+    localStorage.setItem('skladisce_demo_seeded', 'true');
   }
   await refreshInventory();
 });
@@ -1892,6 +1894,9 @@ async function processAutoScanFrame(video) {
   if (isProcessingFrame) return;
   isProcessingFrame = true;
 
+  let parsed = null;
+  window.parsed = null;
+
   const liveBadge = document.getElementById('scanLiveIndicator');
 
   try {
@@ -1959,8 +1964,8 @@ async function processAutoScanFrame(video) {
     // 3. Če je artikel najden, sproži prepoznavo!
     if (parsed && parsed.articleNumber) {
       const now = performance.now();
-      // Prepreči takojšnje podvajanje iste škatle
-      if (parsed.articleNumber === lastDetectedSKU && (now - lastDetectedTime) < 2500) {
+      // Prepreči takojšnje podvajanje iste škatle (za isti SKU 5s premor, za nov artikel pa takoj!)
+      if (parsed.articleNumber === lastDetectedSKU && (now - lastDetectedTime) < 5000) {
         isProcessingFrame = false;
         return;
       }
@@ -2592,8 +2597,12 @@ async function finishReceiptDispatch() {
 window.closeBoxResultCard = function() {
   const resultCard = document.getElementById('scanResultCard');
   if (resultCard) resultCard.style.display = 'none';
+  if (currentScannedBox && currentScannedBox.articleNumber) {
+    lastDetectedSKU = currentScannedBox.articleNumber;
+  }
   currentScannedBox = null;
-  lastDetectedTime = performance.now(); // 1.5s cooldown
+  window.parsed = null;
+  lastDetectedTime = performance.now();
 };
 
 function renderBoxResultCard(existingItem) {
@@ -3738,10 +3747,34 @@ function setupSettingsAndBackup() {
   document.getElementById('btnLoadDemo').addEventListener('click', () => {
     loadDemoData();
   });
+
+  // Izbris vseh artiklov (Počisti bazo)
+  const btnClearAll = document.getElementById('btnClearAllItems');
+  if (btnClearAll) {
+    btnClearAll.addEventListener('click', async () => {
+      const confirmed = confirm(
+        '⚠️ OPOZORILO: Ali ste popolnoma prepričani, da želite IZBRISATI VSE artikle in zalogo iz skladišča?\n\n' +
+        'To bo izbrisalo vse demo in obstoječe artikle ter pustilo prazno bazo za vnos vaših pravih artiklov.'
+      );
+      if (!confirmed) return;
+
+      try {
+        await DB.clearAllItems();
+        localStorage.setItem('skladisce_demo_seeded', 'true'); // Da se demo artikli ne naložijo ponovno
+        showToast('🗑️ Vsi artikli in zaloge so bili uspešno izbrisani.');
+        await refreshInventory();
+        await refreshLogs();
+      } catch (err) {
+        console.error('Napaka pri brisanju artiklov:', err);
+        showToast('Napaka pri brisanju artiklov: ' + err.message);
+      }
+    });
+  }
 }
 
 window.loadDemoData = async function() {
   await DB.seedDemoData();
+  localStorage.setItem('skladisce_demo_seeded', 'true');
   showToast('Testni skladiščni artikli uspešno naloženi!');
   await refreshInventory();
 };
