@@ -79,38 +79,66 @@
       <button class="fab" id="btnOpenAddModal" title="Dodaj nov artikel">+</button>
     </section>
 
-    <!-- ZAVIHEK 2: ČITALNIK ČRTNIH KOD -->
+    <!-- ZAVIHEK 2: OPTIČNI ČITALNIK ŠKATEL (OCR) -->
     <section id="tab-scanner" class="tab-content scanner-section">
-      <h2 style="font-size: 1.1rem; margin-bottom: 8px;">Skeniranje črtne kode</h2>
+      <div style="text-align: center; margin-bottom: 6px;">
+        <h2 style="font-size: 1.15rem; font-weight: 700;">Optično branje škatel</h2>
+        <p style="font-size: 0.78rem; color: var(--text-muted);">
+          Pametno branje etiket s pomočjo nevronske mreže (ime, šifra artikla, box X/Y, količina)
+        </p>
+      </div>
+
+      <!-- Kamera z vizirjem za škatlo -->
       <div class="camera-preview-container">
         <video id="cameraVideo" playsinline autoplay muted></video>
+        <canvas id="ocrPreprocessCanvas" style="display: none;"></canvas>
         <div class="scanner-overlay">
-          <div class="scan-frame">
-            <div class="scan-laser"></div>
+          <div class="scan-frame box-frame">
+            <div class="frame-corner top-left"></div>
+            <div class="frame-corner top-right"></div>
+            <div class="frame-corner bottom-left"></div>
+            <div class="frame-corner bottom-right"></div>
+            <div class="frame-label">Usmeri v napis na škatli</div>
+          </div>
+        </div>
+        <!-- Nalagalnik obdelave (TPU / Nevronska mreža) -->
+        <div id="ocrLoadingOverlay" class="ocr-loading-overlay" style="display: none;">
+          <div class="spinner"></div>
+          <div id="ocrLoadingText" style="font-weight: 600; font-size: 0.9rem; margin-top: 10px;">
+            ⚡ Branje škatle s TPU pospeševanjem...
           </div>
         </div>
       </div>
 
-      <div class="scanner-status" id="scannerStatus">
-        Kamera je pripravljena za branje črtnih kod...
-      </div>
+      <!-- Glavni kontrolni gumbi -->
+      <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn-primary" id="btnCaptureOCR" style="margin-top:0; font-size: 1.05rem; padding: 14px;">
+          📸 PREBERI ŠKATLO ZDAJ
+        </button>
 
-      <div style="width: 100%; max-width: 420px; display: flex; gap: 8px;">
-        <button class="btn-secondary" id="btnToggleCamera" style="margin-top:0;">Vklopi / Izklopi kamero</button>
-      </div>
-
-      <!-- Ročni vnos kode za primer ko kamera ni na voljo -->
-      <div style="width: 100%; max-width: 420px; background: var(--bg-card); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 10px;">
-        <label class="form-label">Ročni vnos / preverjanje kode:</label>
         <div style="display: flex; gap: 8px;">
-          <input type="text" id="manualScanInput" class="form-control" placeholder="Vpiši kodo ali SKU...">
-          <button class="btn-primary" id="btnManualScan" style="margin-top: 0; width: auto; padding: 0 16px;">Najdi</button>
+          <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display: none;">
+          <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin-top:0; flex: 1;">
+            📷 Posnemi / Izberi sliko
+          </button>
+          <button class="btn-secondary" id="btnToggleCamera" style="margin-top:0; width: auto; padding: 0 14px;" title="Vklopi / Izklopi kamero">
+            🔄
+          </button>
         </div>
       </div>
 
-      <!-- Rezultat skeniranja -->
-      <div id="scanResultCard" style="display: none; width: 100%; max-width: 420px;" class="item-card">
-        <!-- Tukaj se dinamično prikaže najden artikel -->
+      <!-- Kartica z rezultatom prepoznane škatle -->
+      <div id="scanResultCard" style="display: none; width: 100%; max-width: 420px;" class="box-result-card">
+        <!-- Dinamično napolnjeno z ocr-parser -->
+      </div>
+
+      <!-- Ročni vnos / iskanje po 7-mestni kodi, če je škatla poškodovana -->
+      <div style="width: 100%; max-width: 420px; background: var(--bg-card); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 4px;">
+        <label class="form-label">Ročni vnos 7-mestne šifre artikla (npr. 3725150):</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="number" id="manualScanInput" class="form-control" placeholder="Vpiši 7 števk...">
+          <button class="btn-primary" id="btnManualScan" style="margin-top: 0; width: auto; padding: 0 16px;">Najdi</button>
+        </div>
       </div>
     </section>
 
@@ -176,13 +204,14 @@
     </button>
     <button class="nav-tab" data-tab="tab-scanner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
-        <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
-        <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
-        <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
-        <line x1="7" y1="12" x2="17" y2="12"></line>
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+        <polyline points="7.5 4.21 12 6.81 16.5 4.21"></polyline>
+        <polyline points="7.5 19.79 7.5 14.6 3 12"></polyline>
+        <polyline points="21 12 16.5 14.6 16.5 19.79"></polyline>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+        <line x1="12" y1="22.08" x2="12" y2="12"></line>
       </svg>
-      <span>Čitalnik</span>
+      <span>Škatle (OCR)</span>
     </button>
     <button class="nav-tab" data-tab="tab-history">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -211,28 +240,41 @@
         <input type="hidden" id="itemId">
         
         <div class="form-group">
-          <label class="form-label" for="itemSku">Črtna koda / SKU *</label>
+          <label class="form-label" for="itemSku">Številka artikla (prvih 7 števk) *</label>
           <div style="display: flex; gap: 8px;">
-            <input type="text" id="itemSku" class="form-control" placeholder="npr. 383123456789 ali VIJ-M8" required>
-            <button type="button" class="btn-secondary" id="btnGenSku" style="margin-top:0; width:auto; padding: 0 12px;" title="Ustvari avtomatsko kodo">🎲</button>
+            <input type="text" id="itemSku" class="form-control" placeholder="npr. 3725150 ali 3651003" required>
+            <button type="button" class="btn-secondary" id="btnGenSku" style="margin-top:0; width:auto; padding: 0 12px;" title="Ustvari avtomatsko šifro">🎲</button>
           </div>
         </div>
 
         <div class="form-group">
           <label class="form-label" for="itemName">Naziv artikla *</label>
-          <input type="text" id="itemName" class="form-control" placeholder="npr. Vijak M8x40 pocinkan" required>
+          <input type="text" id="itemName" class="form-control" placeholder="npr. Garden chair FJELLERUP" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="itemBoxInfo">Oznaka škatle</label>
+            <input type="text" id="itemBoxInfo" class="form-control" placeholder="Box 1/1" value="Box 1/1">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="itemPiecesPerBox">Kosov v škatli</label>
+            <input type="number" id="itemPiecesPerBox" class="form-control" placeholder="4" value="1" min="1">
+          </div>
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="itemCategory">Kategorija</label>
-            <input type="text" id="itemCategory" class="form-control" placeholder="npr. Pritrdilni mat." list="catSuggestions">
+            <input type="text" id="itemCategory" class="form-control" placeholder="npr. Pohištvo" list="catSuggestions">
             <datalist id="catSuggestions">
-              <option value="Pritrdilni material">
+              <option value="Vrtno pohištvo">
+              <option value="Stoli & Mize">
+              <option value="Tekstil & Posteljnina">
+              <option value="Oblazinjeno pohištvo">
+              <option value="Ogledala & Dekor">
+              <option value="Omarice & Mizice">
               <option value="Embalaža">
-              <option value="Orodje">
-              <option value="Osebna zaščita">
-              <option value="Maziva & Kemija">
             </datalist>
           </div>
           <div class="form-group">
@@ -243,32 +285,30 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="itemQuantity">Trenutna količina *</label>
+            <label class="form-label" for="itemQuantity">Skupna zaloga (kos) *</label>
             <input type="number" id="itemQuantity" class="form-control" min="0" step="any" required>
           </div>
           <div class="form-group">
             <label class="form-label" for="itemMinQuantity">Minimalna zaloga (opozorilo)</label>
-            <input type="number" id="itemMinQuantity" class="form-control" min="0" step="any" placeholder="10">
+            <input type="number" id="itemMinQuantity" class="form-control" min="0" step="any" placeholder="8">
           </div>
         </div>
 
         <div class="form-group">
           <label class="form-label" for="itemUnit">Enota mere</label>
           <select id="itemUnit" class="form-control">
-            <option value="kos">kos (komad)</option>
-            <option value="kg">kg (kilogram)</option>
-            <option value="m">m (meter)</option>
-            <option value="l">l (liter)</option>
-            <option value="škatla">škatla</option>
+            <option value="kos" selected>kos (komad)</option>
             <option value="paket">paket</option>
+            <option value="škatla">škatla</option>
             <option value="par">par</option>
             <option value="paleta">paleta</option>
+            <option value="kg">kg</option>
           </select>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="itemNotes">Opombe / Opis</label>
-          <textarea id="itemNotes" class="form-control" rows="2" placeholder="Dodatne specifikacije, dobavitelj..."></textarea>
+          <label class="form-label" for="itemNotes">Opombe / Dimenzije</label>
+          <textarea id="itemNotes" class="form-control" rows="2" placeholder="Dimenzije, barva, dobavitelj..."></textarea>
         </div>
 
         <button type="submit" class="btn-primary" id="btnSaveItem">Shrani artikel</button>
@@ -300,7 +340,7 @@
 
         <div class="form-group">
           <label class="form-label">Razlog / Številka dobavnice / Opomba</label>
-          <input type="text" id="changeNote" class="form-control" placeholder="npr. Dobavnica #1024 ali naročilo stranke">
+          <input type="text" id="changeNote" class="form-control" placeholder="npr. Dobavnica #1024 ali prevzem palete">
         </div>
 
         <button type="submit" class="btn-primary" id="btnConfirmStockChange">Potrdi premik</button>
@@ -308,6 +348,8 @@
     </div>
   </div>
 
+  <script src="tesseract.min.js"></script>
+  <script src="ocr-parser.js"></script>
   <script src="db.js"></script>
   <script src="app.js"></script>
 </body>

@@ -1,10 +1,12 @@
-const CACHE_NAME = 'skladisce-pwa-v1';
+const CACHE_NAME = 'skladisce-pwa-v2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './db.js',
+  './ocr-parser.js',
+  './tesseract.min.js',
   './manifest.json',
   './icons/icon.svg'
 ];

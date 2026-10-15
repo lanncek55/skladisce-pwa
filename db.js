@@ -103,6 +103,8 @@ const DB = {
       quantity: Number(item.quantity) || 0,
       minQuantity: Number(item.minQuantity) || 0,
       unit: String(item.unit || 'kos').trim(),
+      boxInfo: String(item.boxInfo || 'Box 1/1').trim(),
+      piecesPerBox: Number(item.piecesPerBox) || 1,
       notes: String(item.notes || '').trim(),
       lastUpdated: new Date().toISOString()
     };
@@ -123,7 +125,7 @@ const DB = {
           changeType: 'create',
           changeAmount: itemData.quantity,
           resultingQty: itemData.quantity,
-          note: 'Začetni vnos artikla',
+          note: `Začetni vnos (${itemData.boxInfo}, ${itemData.piecesPerBox} kos/škatlo)`,
           timestamp: new Date().toISOString()
         });
         resolve(newId);
@@ -137,8 +139,16 @@ const DB = {
     const updatedData = {
       ...item,
       id: Number(item.id),
+      sku: String(item.sku || '').trim(),
+      name: String(item.name || '').trim(),
+      category: String(item.category || 'Splošno').trim(),
+      location: String(item.location || 'Brez lokacije').trim(),
       quantity: Number(item.quantity) || 0,
       minQuantity: Number(item.minQuantity) || 0,
+      unit: String(item.unit || 'kos').trim(),
+      boxInfo: String(item.boxInfo || 'Box 1/1').trim(),
+      piecesPerBox: Number(item.piecesPerBox) || 1,
+      notes: String(item.notes || '').trim(),
       lastUpdated: new Date().toISOString()
     };
 
@@ -246,12 +256,14 @@ const DB = {
 
   async seedDemoData() {
     const demoItems = [
-      { sku: 'VIJ-M8-40', name: 'Vijak M8x40 pocinkan', category: 'Pritrdilni material', location: 'Regal A-01', quantity: 250, minQuantity: 50, unit: 'kos', notes: 'Standardni jekleni vijaki DIN 933' },
-      { sku: 'MAT-M8', name: 'Matica M8 samozaporna', category: 'Pritrdilni material', location: 'Regal A-02', quantity: 18, minQuantity: 40, unit: 'kos', notes: 'Z nylon obročem (kritična zaloga!)' },
-      { sku: 'TRAK-LEP-50', name: 'Pakirni lepilni trak 50mm', category: 'Embalaža', location: 'Polica B-01', quantity: 34, minQuantity: 15, unit: 'kos', notes: 'Rjav trak za kartone' },
-      { sku: 'SKAT-S', name: 'Kartonska škatla tip S (30x20x15)', category: 'Embalaža', location: 'Paleta P-12', quantity: 5, minQuantity: 20, unit: 'kos', notes: 'Zaloga pod minimumom' },
-      { sku: 'ROK-MEH-L', name: 'Zaščitne delovne rokavice (vel. L)', category: 'Osebna zaščita', location: 'Regal C-04', quantity: 42, minQuantity: 10, unit: 'par', notes: 'Lateks premaz' },
-      { sku: 'MAZ-WD40-400', name: 'Sprej WD-40 400ml', category: 'Maziva & Kemija', location: 'Regal D-01', quantity: 12, minQuantity: 6, unit: 'kos', notes: 'Univerzalno mazivo' }
+      { sku: '3725150', name: 'Garden chair FJELLERUP', category: 'Vrtno pohištvo', location: 'Regal V-04', quantity: 24, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 4, notes: 'W56 x H93 x D66 cm, Natural' },
+      { sku: '3651003', name: 'Mirror SANDAGER 3 pcs/pk oak', category: 'Ogledala & Dekor', location: 'Regal O-02', quantity: 15, minQuantity: 6, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 3, notes: 'Ø45/55/70 oak' },
+      { sku: '3759803', name: 'Stacking chair LARVIK grey', category: 'Stoli & Mize', location: 'Paleta P-08', quantity: 48, minQuantity: 24, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 24, notes: 'Nakladalni stol, siva barva' },
+      { sku: '4334604', name: 'ULVIK vzglavnik 50x70', category: 'Tekstil & Posteljnina', location: 'Regal T-11', quantity: 36, minQuantity: 12, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 12, notes: '50x70 cm, beli' },
+      { sku: '4318500', name: 'PIL VANSE foam 30x47', category: 'Tekstil & Posteljnina', location: 'Regal T-12', quantity: 16, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 8, notes: 'Anatomski vzglavnik iz spominske pene' },
+      { sku: '3650189', name: 'Pouffe AARS Dark Sand', category: 'Oblazinjeno pohištvo', location: 'Regal S-01', quantity: 9, minQuantity: 3, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 3, notes: '65x65x40 cm' },
+      { sku: '3446278', name: 'TM VINGAN 160x200cm', category: 'Vzmetnice & Nadvložki', location: 'Regal M-05', quantity: 4, minQuantity: 2, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Nadvložek 160x200x4cm' },
+      { sku: '3610115', name: 'Pedestal LYNGVIG Ø35 d.oak', category: 'Omarice & Mizice', location: 'Regal M-08', quantity: 6, minQuantity: 2, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Ø35 x H60 cm, temni hrast' }
     ];
 
     for (const item of demoItems) {
