@@ -214,7 +214,8 @@ function renderItemsList() {
   const displayed = filtered.slice(0, displayLimit);
 
   let html = displayed.map(item => {
-    const qty = Number(item.quantity) || 0;
+    const stats = DB.getBoxStats(item);
+    const qty = stats.completeSets;
     const minQty = Number(item.minQuantity) || 0;
     
     let statusClass = 'status-ok';
@@ -227,6 +228,26 @@ function renderItemsList() {
       statusText = 'Nizka zaloga';
     }
 
+    let boxBreakdownHtml = '';
+    if (stats.boxTotal > 1) {
+      boxBreakdownHtml = `
+        <div class="box-breakdown-container" onclick="openEditModal(${item.id})">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 2px;">
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">📦 ${stats.boxTotal} škatle na garnituro:</span>
+            ${stats.hasIncomplete 
+              ? `<span class="badge-incomplete">⚠️ ${escapeHtml(stats.missingSummary)}</span>` 
+              : `<span class="badge-complete">✓ Celi kompleti (${stats.completeSets})</span>`}
+          </div>
+          ${stats.breakdown.map(b => `
+            <div class="box-breakdown-row">
+              <span>Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">📍 ${escapeHtml(b.location)}</span></span>
+              <span class="box-breakdown-count">${b.count} kos</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
     return `
       <div class="item-card" data-id="${item.id}">
         <div class="item-top" onclick="openEditModal(${item.id})">
@@ -235,15 +256,18 @@ function renderItemsList() {
             <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
               <span class="item-sku-badge"># ${escapeHtml(item.sku)}</span>
               ${item.location ? `<span class="item-location">📍 ${escapeHtml(item.location)}</span>` : ''}
+              ${stats.boxTotal > 1 ? `<span class="item-location" style="color:var(--primary); font-weight:600;">📦 ${stats.boxTotal}-delni komplet</span>` : ''}
             </div>
           </div>
           <span class="stock-status-badge ${statusClass}">${statusText}</span>
         </div>
 
+        ${boxBreakdownHtml}
+
         <div class="item-bottom">
           <div class="item-qty-display" onclick="openEditModal(${item.id})">
             <span class="qty-number">${qty}</span>
-            <span class="qty-unit">${escapeHtml(item.unit || 'kos')}</span>
+            <span class="qty-unit">${escapeHtml(item.unit || (stats.boxTotal > 1 ? 'kompletov' : 'kos'))}</span>
           </div>
           <div class="quick-actions">
             <button class="btn-qty" onclick="openStockChangeModal(${item.id}, 'out')" title="Izdaj blago">-</button>
@@ -265,6 +289,41 @@ function renderItemsList() {
   listEl.innerHTML = html;
 }
 
+function renderModalBoxInputs(item) {
+  const container = document.getElementById('modalBoxLocationsContainer');
+  const rowsEl = document.getElementById('modalBoxRows');
+  if (!container || !rowsEl) return;
+
+  const boxInfoVal = document.getElementById('itemBoxInfo').value;
+  const parsed = DB.parseBoxInfo(boxInfoVal);
+  const boxTotal = (item && item.boxTotal) ? item.boxTotal : parsed.boxTotal;
+
+  if (boxTotal <= 1) {
+    container.style.display = 'none';
+    rowsEl.innerHTML = '';
+    return;
+  }
+
+  container.style.display = 'block';
+  let html = '';
+  const currentBoxes = (item && item.boxes) ? item.boxes : {};
+
+  for (let b = 1; b <= boxTotal; b++) {
+    const bData = currentBoxes[b] || { count: 0, location: document.getElementById('itemLocation').value || '' };
+    html += `
+      <div style="display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,0.04); padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.06);">
+        <span style="font-size: 0.8rem; font-weight: 700; width: 90px; color: var(--primary);">Škatla ${b}/${boxTotal}:</span>
+        <input type="text" class="form-control modal-box-loc" data-box="${b}" placeholder="Lokacija (npr. Regal A-01)" value="${escapeHtml(bData.location || '')}" style="flex: 2; padding: 6px 8px; font-size: 0.85rem;">
+        <div style="display:flex; align-items:center; gap: 4px; flex: 1;">
+          <input type="number" min="0" class="form-control modal-box-count" data-box="${b}" placeholder="Kosov" value="${bData.count || 0}" style="padding: 6px 8px; font-size: 0.85rem; text-align: center;">
+          <span style="font-size: 0.72rem; color: var(--text-muted);">kos</span>
+        </div>
+      </div>
+    `;
+  }
+  rowsEl.innerHTML = html;
+}
+
 /* =========================================================================
    4. MODALNA OKNA: DODAJ / UREDI & PREMIK
    ========================================================================= */
@@ -276,12 +335,23 @@ function setupModals() {
   const formItem = document.getElementById('formItem');
   const btnGenSku = document.getElementById('btnGenSku');
   const btnDeleteItem = document.getElementById('btnDeleteItem');
+  const itemBoxInfoInput = document.getElementById('itemBoxInfo');
+
+  itemBoxInfoInput.addEventListener('input', () => {
+    const id = document.getElementById('itemId').value;
+    if (id) {
+      DB.getItemById(id).then(it => renderModalBoxInputs(it));
+    } else {
+      renderModalBoxInputs(null);
+    }
+  });
 
   btnOpenAddModal.addEventListener('click', () => {
     formItem.reset();
     document.getElementById('itemId').value = '';
     document.getElementById('modalItemTitle').textContent = 'Nov artikel';
     btnDeleteItem.style.display = 'none';
+    renderModalBoxInputs(null);
     modalItem.style.display = 'flex';
   });
 
@@ -290,7 +360,6 @@ function setupModals() {
   });
 
   btnGenSku.addEventListener('click', () => {
-    // Generiraj kodo npr. ART-9482
     const rnd = Math.floor(1000 + Math.random() * 9000);
     document.getElementById('itemSku').value = 'ART-' + rnd;
   });
@@ -298,14 +367,49 @@ function setupModals() {
   formItem.addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = document.getElementById('itemId').value;
+    const boxInfoStr = document.getElementById('itemBoxInfo').value || 'Box 1/1';
+    const parsedBox = DB.parseBoxInfo(boxInfoStr);
+    const boxTotal = parsedBox.boxTotal;
+
+    const locInputs = document.querySelectorAll('.modal-box-loc');
+    const countInputs = document.querySelectorAll('.modal-box-count');
+
+    let boxes = {};
+    let counts = [];
+
+    if (boxTotal > 1 && locInputs.length > 0) {
+      locInputs.forEach(input => {
+        const b = parseInt(input.dataset.box, 10);
+        const loc = input.value.trim();
+        const cntEl = document.querySelector(`.modal-box-count[data-box="${b}"]`);
+        const cnt = Number(cntEl?.value) || 0;
+        boxes[b] = {
+          count: cnt,
+          location: loc || document.getElementById('itemLocation').value || 'Brez lokacije'
+        };
+        counts.push(cnt);
+      });
+    } else {
+      const singleQty = Number(document.getElementById('itemQuantity').value) || 0;
+      boxes[1] = {
+        count: singleQty,
+        location: document.getElementById('itemLocation').value || 'Brez lokacije'
+      };
+      counts.push(singleQty);
+    }
+
+    const calculatedCompleteSets = (boxTotal > 1) ? Math.min(...counts) : Number(document.getElementById('itemQuantity').value);
+
     const itemData = {
       sku: document.getElementById('itemSku').value,
       name: document.getElementById('itemName').value,
-      boxInfo: document.getElementById('itemBoxInfo').value || 'Box 1/1',
+      boxInfo: boxInfoStr,
+      boxTotal: boxTotal,
+      boxes: boxes,
       piecesPerBox: Number(document.getElementById('itemPiecesPerBox').value) || 1,
       category: document.getElementById('itemCategory').value,
       location: document.getElementById('itemLocation').value,
-      quantity: Number(document.getElementById('itemQuantity').value),
+      quantity: calculatedCompleteSets,
       minQuantity: Number(document.getElementById('itemMinQuantity').value) || 0,
       unit: document.getElementById('itemUnit').value,
       notes: document.getElementById('itemNotes').value
@@ -391,6 +495,8 @@ window.openEditModal = async function(id) {
   document.getElementById('itemMinQuantity').value = item.minQuantity || 0;
   document.getElementById('itemUnit').value = item.unit || 'kos';
   document.getElementById('itemNotes').value = item.notes || '';
+
+  renderModalBoxInputs(item);
 
   document.getElementById('modalItemTitle').textContent = 'Uredi artikel';
   document.getElementById('btnDeleteItem').style.display = 'block';
@@ -1113,19 +1219,48 @@ function renderBoxResultCard(existingItem) {
 
   const sku = parsed.articleNumber || 'Ni zaznana';
   const name = (existingItem && existingItem.name) ? existingItem.name : (parsed.name || 'Neznan artikel');
-  const boxInfo = `Box ${parsed.boxCurrent}/${parsed.boxTotal}`;
+  const boxNum = parsed.boxCurrent || 1;
+  const boxTotal = Math.max(1, parsed.boxTotal || (existingItem ? existingItem.boxTotal : 1));
+  const boxInfo = `Box ${boxNum}/${boxTotal}`;
   const piecesPerBox = Number(parsed.quantityInBox) || 1;
   const totalPcs = piecesPerBox * currentMultiplier;
 
+  const currentBoxLoc = (existingItem && existingItem.boxes && existingItem.boxes[boxNum]) 
+    ? existingItem.boxes[boxNum].location 
+    : (existingItem ? existingItem.location : '');
+
+  let boxBreakdownHtml = '';
   let stockInfoHtml = '';
+
   if (existingItem) {
+    const stats = DB.getBoxStats(existingItem);
     stockInfoHtml = `
       <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.85rem; color: var(--success); display:flex; justify-content:space-between; align-items:center;">
-        <span>Trenutna zaloga v skladišču:</span>
-        <strong style="font-size: 1.05rem;">${existingItem.quantity} ${existingItem.unit || 'kos'}</strong>
+        <span>Zaloga celih kompletov:</span>
+        <strong style="font-size: 1.05rem;">${stats.completeSets} ${existingItem.unit || (stats.boxTotal > 1 ? 'garnitur' : 'kos')}</strong>
       </div>
-      <div style="font-size: 0.78rem; color: var(--text-dim);">Lokacija: <strong>${existingItem.location || 'Brez lokacije'}</strong></div>
     `;
+
+    if (stats.boxTotal > 1) {
+      boxBreakdownHtml = `
+        <div class="box-breakdown-container" style="margin-top: 6px;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">
+            Stanje vseh škatel tega artikla:
+          </div>
+          ${stats.breakdown.map(b => `
+            <div class="box-breakdown-row" style="${b.boxNum === boxNum ? 'border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.1);' : ''}">
+              <span>${b.boxNum === boxNum ? '👉 ' : ''}Škatla ${b.boxNum}/${stats.boxTotal}: <span class="box-breakdown-loc">${escapeHtml(b.location)}</span></span>
+              <span class="box-breakdown-count">${b.count} kos</span>
+            </div>
+          `).join('')}
+          <div style="font-size: 0.76rem; margin-top: 2px;">
+            ${stats.hasIncomplete 
+              ? `<span style="color: var(--warning); font-weight:600;">⚠️ ${escapeHtml(stats.missingSummary)} (celih: ${stats.completeSets})</span>` 
+              : `<span style="color: var(--success); font-weight:600;">✓ Vse škatle na voljo (${stats.completeSets} kompletov)</span>`}
+          </div>
+        </div>
+      `;
+    }
   } else {
     stockInfoHtml = `
       <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.85rem; color: var(--warning);">
@@ -1159,6 +1294,18 @@ function renderBoxResultCard(existingItem) {
       </div>
     </div>
 
+    <!-- Vnos / urejanje lokacije za to posamezno škatlo -->
+    <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
+        <span style="font-size: 0.74rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">
+          📍 Lokacija za Škatlo ${boxNum}/${boxTotal}:
+        </span>
+        <span style="font-size: 0.7rem; color: var(--text-muted);">regal / polica</span>
+      </div>
+      <input type="text" id="boxResultLocationInput" class="form-control" style="padding: 7px 10px; font-weight: 600; font-size: 0.95rem; background: rgba(0,0,0,0.35); border-color: rgba(56, 189, 248, 0.4);" placeholder="npr. Regal A-01" value="${escapeHtml(currentBoxLoc || '')}">
+    </div>
+
+    ${boxBreakdownHtml}
     ${stockInfoHtml}
 
     <!-- Izbira števila škatel (množilnik) -->
@@ -1222,33 +1369,45 @@ window.executeBoxStockChange = async function(direction) {
   const piecesPerBox = Number(document.getElementById('boxPiecesPerBoxInput')?.value) || Number(currentScannedBox.quantityInBox) || 1;
   const totalAmount = piecesPerBox * currentMultiplier;
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
+  const boxLocation = document.getElementById('boxResultLocationInput')?.value?.trim() || '';
+  const boxNum = currentScannedBox.boxCurrent || 1;
+  const boxTotal = Math.max(1, currentScannedBox.boxTotal || 1);
 
   let item = await DB.getItemBySKU(sku);
 
   // Če artikel še ne obstaja, ga avtomatsko ustvari s prepoznanim ali popravljenim imenom
   if (!item) {
+    const boxes = {};
+    for (let b = 1; b <= boxTotal; b++) {
+      boxes[b] = {
+        count: (b === boxNum) ? 0 : 0,
+        location: (b === boxNum && boxLocation) ? boxLocation : (boxLocation || 'Prevzemno območje')
+      };
+    }
+
     const newId = await DB.addItem({
       sku: sku || 'ART-' + Math.floor(1000 + Math.random() * 9000),
       name: chosenName,
       quantity: 0,
       minQuantity: 4,
-      boxInfo: `Box ${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}`,
+      boxInfo: `Box ${boxNum}/${boxTotal}`,
+      boxTotal: boxTotal,
+      boxes: boxes,
       piecesPerBox: piecesPerBox,
-      unit: 'kos',
+      unit: (boxTotal > 1) ? 'garnitura' : 'kos',
       category: 'Splošno',
-      location: 'Prevzemno območje'
+      location: boxLocation || 'Prevzemno območje'
     });
     item = await DB.getItemById(newId);
   } else if (item.name !== chosenName) {
-    // Posodobi popravljeno ime v bazi
     item.name = chosenName;
     await DB.updateItem(item);
   }
 
-  const note = `${currentMultiplier}x škatla (${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}), ${piecesPerBox} kos/škatlo`;
+  const note = `${currentMultiplier}x škatla (${boxNum}/${boxTotal}), ${piecesPerBox} kos/škatlo`;
   const delta = (direction === 'in') ? totalAmount : -totalAmount;
 
-  await DB.adjustStock(item.id, delta, note, direction);
+  await DB.adjustStock(item.id, delta, note, direction, boxNum, boxLocation);
   if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
   showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} kos (${chosenName})` : `📤 Izdano: -${totalAmount} kos (${chosenName})`);
@@ -1436,6 +1595,19 @@ function setupSettingsAndBackup() {
     importInput.value = '';
   });
 
+  // Hitri PDF izpisi (Kompleti vs Nepopolne škatle)
+  const btnPdfComplete = document.getElementById('btnPdfComplete');
+  if (btnPdfComplete) btnPdfComplete.addEventListener('click', exportCompleteSetsPDF);
+
+  const btnQuickPdfComplete = document.getElementById('btnQuickPdfComplete');
+  if (btnQuickPdfComplete) btnQuickPdfComplete.addEventListener('click', exportCompleteSetsPDF);
+
+  const btnPdfIncomplete = document.getElementById('btnPdfIncomplete');
+  if (btnPdfIncomplete) btnPdfIncomplete.addEventListener('click', exportIncompleteSetsPDF);
+
+  const btnQuickPdfIncomplete = document.getElementById('btnQuickPdfIncomplete');
+  if (btnQuickPdfIncomplete) btnQuickPdfIncomplete.addEventListener('click', exportIncompleteSetsPDF);
+
   // Naloži Demo
   document.getElementById('btnLoadDemo').addEventListener('click', () => {
     loadDemoData();
@@ -1447,6 +1619,404 @@ window.loadDemoData = async function() {
   showToast('Testni skladiščni artikli uspešno naloženi!');
   await refreshInventory();
 };
+
+/* =========================================================================
+   8. GENERIRANJE PDF IZPISOV ZARADI ČRTNIH KOD & ŠKATEL (100% OFFLINE)
+   ========================================================================= */
+function generateBarcodeDataUrl(sku) {
+  try {
+    if (typeof JsBarcode === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    JsBarcode(canvas, String(sku).trim(), {
+      format: 'CODE128',
+      width: 2,
+      height: 42,
+      displayValue: true,
+      fontSize: 13,
+      fontOptions: 'bold',
+      margin: 4,
+      background: '#ffffff',
+      lineColor: '#000000'
+    });
+    return canvas.toDataURL('image/png');
+  } catch (e) {
+    console.warn('Napaka pri generiranju črtne kode za', sku, e);
+    return null;
+  }
+}
+
+async function exportCompleteSetsPDF() {
+  try {
+    showToast('Pripravljam PDF s popolnimi kompleti...');
+    const allItems = await DB.getAllItems();
+
+    // V ta izpis gredo SAMO POPOLNI KOMPLETI (kjer so vse škatle na voljo)
+    const items = allItems.filter(item => {
+      const stats = DB.getBoxStats(item);
+      return stats.completeSets > 0;
+    });
+
+    if (items.length === 0) {
+      showToast('Ni artiklov s popolnimi kompleti na zalogi.');
+      return;
+    }
+
+    if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+      showToast('jsPDF knjižnica ni naložena.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 14;
+    const contentWidth = pageWidth - (margin * 2); // 182mm
+
+    let currentPage = 1;
+    let y = 16;
+
+    function drawHeader() {
+      // Header pas
+      doc.setFillColor(15, 23, 42); // Temno modra
+      doc.rect(margin, y, contentWidth, 22, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('SKLADISCE - CELOTNA ZALOGA (POPOLNI KOMPLETI)', margin + 6, y + 9);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(148, 163, 184);
+      const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
+      doc.text(`Izpis samo celih kompletov (vse sestavne skatle na zalogi) | Datum: ${nowStr}`, margin + 6, y + 16);
+
+      y += 26;
+
+      // Glava tabele: Stolpci (Koda s crtno kodo, Ime, Lokacija skatel, Kolicina)
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, y, contentWidth, 8, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(margin, y, contentWidth, 8, 'S');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+
+      doc.text('CRTNA KODA & SIFRA', margin + 3, y + 5.5);
+      doc.text('IME ARTIKLA', margin + 50, y + 5.5);
+      doc.text('LOKACIJA SKATEL', margin + 115, y + 5.5);
+      doc.text('KOLICINA', margin + 158, y + 5.5);
+
+      y += 9;
+    }
+
+    function drawFooter(pageNo) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Skladisce PWA - Porocilo popolnih kompletov - Stran ${pageNo}`, margin, pageHeight - 8);
+    }
+
+    drawHeader();
+
+    let totalSetsSum = 0;
+    let rowIndex = 0;
+
+    for (const item of items) {
+      const stats = DB.getBoxStats(item);
+      const completeQty = stats.completeSets;
+      totalSetsSum += completeQty;
+
+      const boxLines = stats.breakdown.map(b => 
+        (stats.boxTotal > 1) 
+          ? `Skatla ${b.boxNum}/${stats.boxTotal}: ${b.location} (${b.count} kos)`
+          : `${b.location}`
+      );
+      const rowHeight = Math.max(18, 8 + (boxLines.length * 4.5));
+
+      if (y + rowHeight > pageHeight - 16) {
+        drawFooter(currentPage);
+        doc.addPage();
+        currentPage++;
+        y = 16;
+        drawHeader();
+      }
+
+      if (rowIndex % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+      }
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margin, y + rowHeight - 1, margin + contentWidth, y + rowHeight - 1);
+
+      // 1. Crtna koda & Sifra
+      const barcodeData = generateBarcodeDataUrl(item.sku);
+      if (barcodeData) {
+        doc.addImage(barcodeData, 'PNG', margin + 2, y + 1, 42, 13);
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(item.sku), margin + 4, y + 8);
+      }
+
+      // 2. Ime artikla
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      const splitName = doc.splitTextToSize(item.name, 60);
+      doc.text(splitName, margin + 50, y + 4.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      const subInfo = `${item.category || 'Splosno'}${stats.boxTotal > 1 ? ` | ${stats.boxTotal}-delna garnitura` : ''}`;
+      doc.text(subInfo, margin + 50, y + 4.5 + (splitName.length * 4));
+
+      // 3. Lokacija skatel
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.8);
+      doc.setTextColor(30, 41, 59);
+      let locY = y + 4.5;
+      boxLines.forEach(line => {
+        doc.text(line, margin + 115, locY);
+        locY += 4.2;
+      });
+
+      // 4. Kolicina
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(16, 185, 129);
+      doc.text(`${completeQty}`, margin + 158, y + 6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${item.unit || (stats.boxTotal > 1 ? 'kompletov' : 'kos')}`, margin + 158, y + 10.5);
+
+      y += rowHeight;
+      rowIndex++;
+    }
+
+    if (y + 18 > pageHeight - 16) {
+      drawFooter(currentPage);
+      doc.addPage();
+      currentPage++;
+      y = 16;
+    }
+
+    y += 4;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, y, contentWidth, 13, 'F');
+    doc.setDrawColor(148, 163, 184);
+    doc.rect(margin, y, contentWidth, 13, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`SKUPAJ: ${items.length} artiklov z zalogo`, margin + 6, y + 8.5);
+    doc.text(`Vseh celih kompletov: ${totalSetsSum} kos/garnitur`, margin + 100, y + 8.5);
+
+    drawFooter(currentPage);
+
+    const fileName = `skladisce-popolni-kompleti-${getDateStamp()}.pdf`;
+    downloadFile(doc.output('blob'), fileName, 'application/pdf');
+    showToast(`PDF s popolnimi kompleti uspešno shranjen!`);
+  } catch (err) {
+    console.error('Napaka pri generiranju PDF kompletov:', err);
+    showToast('Napaka pri generiranju PDF: ' + err.message);
+  }
+}
+
+async function exportIncompleteSetsPDF() {
+  try {
+    showToast('Pripravljam PDF z nepopolnimi škatlami...');
+    const allItems = await DB.getAllItems();
+
+    // V ta izpis gredo NEPOPOLNE ŠKATLE (kjer je samo en del škatel / manjkajo deli)
+    const items = allItems.filter(item => {
+      const stats = DB.getBoxStats(item);
+      return stats.hasIncomplete;
+    });
+
+    if (items.length === 0) {
+      showToast('Vsi artikli so popolni! Ni nepopolnih škatel na zalogi.');
+      return;
+    }
+
+    if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+      showToast('jsPDF knjižnica ni naložena.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 14;
+    const contentWidth = pageWidth - (margin * 2);
+
+    let currentPage = 1;
+    let y = 16;
+
+    function drawHeader() {
+      // Header pas (Amber barva)
+      doc.setFillColor(180, 83, 9); // #b45309
+      doc.rect(margin, y, contentWidth, 22, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('POROCILO: NEPOPOLNE SKATLE IN MANJKAJOCI DELI', margin + 6, y + 9);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(254, 243, 199);
+      const nowStr = new Date().toLocaleDateString('sl-SI') + ' ob ' + new Date().toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
+      doc.text(`Artikli z manjkajocimi skatlami za sestavo celotnega kompleta | Datum: ${nowStr}`, margin + 6, y + 16);
+
+      y += 26;
+
+      // Tabela
+      doc.setFillColor(254, 243, 199);
+      doc.rect(margin, y, contentWidth, 8, 'F');
+      doc.setDrawColor(245, 158, 11);
+      doc.rect(margin, y, contentWidth, 8, 'S');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(146, 64, 14);
+
+      doc.text('CRTNA KODA & SIFRA', margin + 3, y + 5.5);
+      doc.text('IME ARTIKLA', margin + 50, y + 5.5);
+      doc.text('STANJE SKATEL & LOKACIJE', margin + 105, y + 5.5);
+      doc.text('MANJKA / STANJE', margin + 150, y + 5.5);
+
+      y += 9;
+    }
+
+    function drawFooter(pageNo) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Skladisce PWA - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 8);
+    }
+
+    drawHeader();
+
+    let rowIndex = 0;
+
+    for (const item of items) {
+      const stats = DB.getBoxStats(item);
+
+      const boxLines = stats.breakdown.map(b => 
+        `Skatla ${b.boxNum}/${stats.boxTotal}: ${b.count} kos (${b.location})`
+      );
+      const rowHeight = Math.max(20, 8 + (boxLines.length * 5));
+
+      if (y + rowHeight > pageHeight - 16) {
+        drawFooter(currentPage);
+        doc.addPage();
+        currentPage++;
+        y = 16;
+        drawHeader();
+      }
+
+      if (rowIndex % 2 === 1) {
+        doc.setFillColor(255, 251, 235);
+        doc.rect(margin, y - 1, contentWidth, rowHeight, 'F');
+      }
+      doc.setDrawColor(253, 230, 138);
+      doc.line(margin, y + rowHeight - 1, margin + contentWidth, y + rowHeight - 1);
+
+      // 1. Crtna koda & Sifra
+      const barcodeData = generateBarcodeDataUrl(item.sku);
+      if (barcodeData) {
+        doc.addImage(barcodeData, 'PNG', margin + 2, y + 1, 42, 13);
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text(String(item.sku), margin + 4, y + 8);
+      }
+
+      // 2. Ime artikla
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      const splitName = doc.splitTextToSize(item.name, 52);
+      doc.text(splitName, margin + 50, y + 4.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${item.category || 'Splosno'} | ${stats.boxTotal}-delni`, margin + 50, y + 4.5 + (splitName.length * 4));
+
+      // 3. Stanje skatel & lokacije
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.8);
+      doc.setTextColor(30, 41, 59);
+      let locY = y + 4.5;
+      boxLines.forEach(line => {
+        doc.text(line, margin + 105, locY);
+        locY += 4.5;
+      });
+
+      // 4. Manjka / Stanje
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(217, 119, 6);
+      const splitMissing = doc.splitTextToSize(stats.missingSummary || 'Nepopolno', 30);
+      doc.text(splitMissing, margin + 150, y + 4.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Celih: ${stats.completeSets} kpl`, margin + 150, y + 5.5 + (splitMissing.length * 4));
+
+      y += rowHeight;
+      rowIndex++;
+    }
+
+    if (y + 18 > pageHeight - 16) {
+      drawFooter(currentPage);
+      doc.addPage();
+      currentPage++;
+      y = 16;
+    }
+
+    y += 4;
+    doc.setFillColor(254, 243, 199);
+    doc.rect(margin, y, contentWidth, 12, 'F');
+    doc.setDrawColor(245, 158, 11);
+    doc.rect(margin, y, contentWidth, 12, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(146, 64, 14);
+    doc.text(`OPOZORILO: ${items.length} artiklov ima nepopolne skatle in potrebuje dopolnitev.`, margin + 6, y + 7.5);
+
+    drawFooter(currentPage);
+
+    const fileName = `skladisce-nepopolne-skatle-${getDateStamp()}.pdf`;
+    downloadFile(doc.output('blob'), fileName, 'application/pdf');
+    showToast(`PDF z nepopolnimi škatlami uspešno shranjen!`);
+  } catch (err) {
+    console.error('Napaka pri generiranju PDF nepopolnih škatel:', err);
+    showToast('Napaka pri generiranju PDF: ' + err.message);
+  }
+}
 
 /* =========================================================================
    POMOŽNE FUNKCIJE
@@ -1482,7 +2052,7 @@ function getDateStamp() {
 }
 
 function downloadFile(content, fileName, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
+  const blob = (content instanceof Blob) ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1490,5 +2060,6 @@ function downloadFile(content, fileName, mimeType) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+

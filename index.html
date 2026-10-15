@@ -52,6 +52,16 @@
         </div>
       </div>
 
+      <!-- Hitri PDF izpisi zaloge -->
+      <div class="pdf-quick-bar">
+        <button class="btn-pdf-pill" id="btnQuickPdfComplete" title="Prenesi PDF s popolnimi kompleti">
+          <span>📄</span> PDF Popolni kompleti
+        </button>
+        <button class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" title="Prenesi PDF z nepopolnimi škatlami">
+          <span>⚠️</span> PDF Nepopolne škatle
+        </button>
+      </div>
+
       <!-- Iskalnik in filtri -->
       <div class="search-container">
         <div class="search-box">
@@ -171,8 +181,18 @@
           Podatke lahko shranite za odpiranje v Excelu ali naredite popolno varnostno kopijo.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <button class="btn-secondary" id="btnExportCSV" style="margin-top:0;">📊 Izvozi zalogo v Excel (CSV)</button>
-          <button class="btn-secondary" id="btnExportJSON" style="margin-top:0;">💾 Prenesi varnostno kopijo (JSON)</button>
+          <button class="btn-secondary" id="btnPdfComplete" style="margin-top:0; border-color: rgba(56, 189, 248, 0.4); color: var(--primary); text-align: left; padding: 12px;">
+            📄 Prenesi PDF: Popolni kompleti (Zaloga s črtno kodo)
+          </button>
+          <button class="btn-secondary" id="btnPdfIncomplete" style="margin-top:0; border-color: rgba(245, 158, 11, 0.4); color: var(--warning); text-align: left; padding: 12px;">
+            ⚠️ Prenesi PDF: Nepopolne škatle (Manjkajoči deli s črtno kodo)
+          </button>
+          <button class="btn-secondary" id="btnExportCSV" style="margin-top:0; text-align: left; padding: 12px;">
+            📊 Izvozi zalogo v Excel (CSV)
+          </button>
+          <button class="btn-secondary" id="btnExportJSON" style="margin-top:0; text-align: left; padding: 12px;">
+            💾 Prenesi varnostno kopijo (JSON)
+          </button>
         </div>
       </div>
 
@@ -271,6 +291,14 @@
           </div>
         </div>
 
+        <!-- Dinamične lokacije posameznih škatel -->
+        <div id="modalBoxLocationsContainer" style="display: none; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+            <span>📦</span> Lokacije in število posameznih škatel:
+          </div>
+          <div id="modalBoxRows" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="itemCategory">Kategorija</label>
@@ -356,6 +384,8 @@
     </div>
   </div>
 
+  <script src="jspdf.umd.min.js"></script>
+  <script src="jsbarcode.all.min.js"></script>
   <script src="tesseract.min.js"></script>
   <script src="ocr-parser.js"></script>
   <script src="db.js"></script>

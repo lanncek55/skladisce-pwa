@@ -44,14 +44,102 @@ function openDB() {
   });
 }
 
+function parseBoxInfo(boxInfo) {
+  const match = String(boxInfo || '').match(/(\d+)\s*[\/:]\s*(\d+)/);
+  if (match) {
+    return {
+      boxCurrent: parseInt(match[1], 10) || 1,
+      boxTotal: Math.max(1, parseInt(match[2], 10) || 1)
+    };
+  }
+  return { boxCurrent: 1, boxTotal: 1 };
+}
+
+function normalizeItemBoxes(item) {
+  if (!item) return item;
+  const parsed = parseBoxInfo(item.boxInfo);
+  const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
+  item.boxTotal = boxTotal;
+
+  if (!item.boxes || typeof item.boxes !== 'object') {
+    item.boxes = {};
+  }
+
+  for (let b = 1; b <= boxTotal; b++) {
+    if (!item.boxes[b]) {
+      item.boxes[b] = {
+        count: (boxTotal === 1) ? (Number(item.quantity) || 0) : ((b === parsed.boxCurrent) ? (Number(item.quantity) || 0) : 0),
+        location: String(item.location || 'Brez lokacije').trim()
+      };
+    } else {
+      item.boxes[b].count = Number(item.boxes[b].count) || 0;
+      item.boxes[b].location = String(item.boxes[b].location || item.location || 'Brez lokacije').trim();
+    }
+  }
+
+  return item;
+}
+
 const DB = {
+  parseBoxInfo,
+  normalizeItemBoxes,
+
+  getBoxStats(item) {
+    const it = normalizeItemBoxes(item);
+    const boxTotal = it.boxTotal;
+    const counts = [];
+    const breakdown = [];
+    const missing = [];
+
+    for (let b = 1; b <= boxTotal; b++) {
+      const bData = it.boxes[b] || { count: 0, location: it.location || 'Brez lokacije' };
+      const count = Number(bData.count) || 0;
+      counts.push(count);
+      breakdown.push({
+        boxNum: b,
+        boxTotal: boxTotal,
+        count: count,
+        location: bData.location || 'Brez lokacije'
+      });
+    }
+
+    const minCount = Math.min(...counts);
+    const maxCount = Math.max(...counts);
+    const completeSets = (boxTotal === 1) ? (Number(it.quantity) || 0) : minCount;
+
+    if (boxTotal > 1) {
+      breakdown.forEach(b => {
+        if (b.count < maxCount) {
+          missing.push(`Manjka ${maxCount - b.count}x Škatla ${b.boxNum}/${boxTotal}`);
+        }
+      });
+    }
+
+    const hasIncomplete = (boxTotal > 1) && (maxCount > 0) && (minCount < maxCount || missing.length > 0);
+
+    return {
+      boxTotal,
+      boxes: it.boxes,
+      breakdown,
+      completeSets,
+      minCount,
+      maxCount,
+      isComplete: completeSets > 0 && !hasIncomplete,
+      hasIncomplete,
+      missingSummary: missing.join(', ')
+    };
+  },
+
   async getAllItems() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('items', 'readonly');
       const store = tx.objectStore('items');
       const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
+      req.onsuccess = () => {
+        const items = (req.result || []).map(normalizeItemBoxes);
+        resolve(items);
+      };
       req.onerror = () => reject(req.error);
     });
   },
@@ -62,7 +150,13 @@ const DB = {
       const tx = db.transaction('items', 'readonly');
       const store = tx.objectStore('items');
       const req = store.get(Number(id));
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        if (req.result) {
+          resolve(normalizeItemBoxes(req.result));
+        } else {
+          resolve(null);
+        }
+      };
       req.onerror = () => reject(req.error);
     });
   },
@@ -80,7 +174,7 @@ const DB = {
         const cursor = e.target.result;
         if (cursor) {
           if (String(cursor.value.sku || '').trim().toLowerCase() === cleanSKU) {
-            found = cursor.value;
+            found = normalizeItemBoxes(cursor.value);
             resolve(found);
             return;
           }
@@ -95,6 +189,20 @@ const DB = {
 
   async addItem(item) {
     const db = await openDB();
+    const parsed = parseBoxInfo(item.boxInfo);
+    const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
+
+    let boxes = item.boxes;
+    if (!boxes || typeof boxes !== 'object') {
+      boxes = {};
+      for (let b = 1; b <= boxTotal; b++) {
+        boxes[b] = {
+          count: (boxTotal === 1) ? (Number(item.quantity) || 0) : ((b === parsed.boxCurrent) ? (Number(item.quantity) || 0) : 0),
+          location: String(item.location || 'Brez lokacije').trim()
+        };
+      }
+    }
+
     const itemData = {
       sku: String(item.sku || '').trim(),
       name: String(item.name || '').trim(),
@@ -103,7 +211,9 @@ const DB = {
       quantity: Number(item.quantity) || 0,
       minQuantity: Number(item.minQuantity) || 0,
       unit: String(item.unit || 'kos').trim(),
-      boxInfo: String(item.boxInfo || 'Box 1/1').trim(),
+      boxInfo: String(item.boxInfo || `Box 1/${boxTotal}`).trim(),
+      boxTotal: boxTotal,
+      boxes: boxes,
       piecesPerBox: Number(item.piecesPerBox) || 1,
       notes: String(item.notes || '').trim(),
       lastUpdated: new Date().toISOString()
@@ -117,7 +227,6 @@ const DB = {
       const req = itemStore.add(itemData);
       req.onsuccess = () => {
         const newId = req.result;
-        // Zabeleži začetni premik
         logStore.add({
           itemId: newId,
           sku: itemData.sku,
@@ -125,7 +234,7 @@ const DB = {
           changeType: 'create',
           changeAmount: itemData.quantity,
           resultingQty: itemData.quantity,
-          note: `Začetni vnos (${itemData.boxInfo}, ${itemData.piecesPerBox} kos/škatlo)`,
+          note: `Začetni vnos (${itemData.boxInfo}, lokacija: ${itemData.location})`,
           timestamp: new Date().toISOString()
         });
         resolve(newId);
@@ -136,6 +245,20 @@ const DB = {
 
   async updateItem(item) {
     const db = await openDB();
+    const parsed = parseBoxInfo(item.boxInfo);
+    const boxTotal = Math.max(1, parseInt(item.boxTotal, 10) || parsed.boxTotal);
+
+    let boxes = item.boxes;
+    if (!boxes || typeof boxes !== 'object') {
+      boxes = {};
+      for (let b = 1; b <= boxTotal; b++) {
+        boxes[b] = {
+          count: (boxTotal === 1) ? (Number(item.quantity) || 0) : 0,
+          location: String(item.location || 'Brez lokacije').trim()
+        };
+      }
+    }
+
     const updatedData = {
       ...item,
       id: Number(item.id),
@@ -146,7 +269,9 @@ const DB = {
       quantity: Number(item.quantity) || 0,
       minQuantity: Number(item.minQuantity) || 0,
       unit: String(item.unit || 'kos').trim(),
-      boxInfo: String(item.boxInfo || 'Box 1/1').trim(),
+      boxInfo: String(item.boxInfo || `Box 1/${boxTotal}`).trim(),
+      boxTotal: boxTotal,
+      boxes: boxes,
       piecesPerBox: Number(item.piecesPerBox) || 1,
       notes: String(item.notes || '').trim(),
       lastUpdated: new Date().toISOString()
@@ -190,7 +315,7 @@ const DB = {
     });
   },
 
-  async adjustStock(id, delta, note = '', type = 'adjust') {
+  async adjustStock(id, delta, note = '', type = 'adjust', boxNum = null, boxLocation = null) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['items', 'logs'], 'readwrite');
@@ -199,17 +324,45 @@ const DB = {
 
       const getReq = itemStore.get(Number(id));
       getReq.onsuccess = () => {
-        const item = getReq.result;
+        let item = getReq.result;
         if (!item) {
           reject(new Error('Artikel ne obstaja.'));
           return;
         }
 
-        const newQty = Math.max(0, (Number(item.quantity) || 0) + Number(delta));
-        item.quantity = newQty;
+        item = normalizeItemBoxes(item);
+        const bNum = boxNum ? parseInt(boxNum, 10) : 1;
+
+        if (boxLocation) {
+          const cleanLoc = String(boxLocation).trim();
+          if (cleanLoc) {
+            if (!item.boxes[bNum]) {
+              item.boxes[bNum] = { count: 0, location: cleanLoc };
+            } else {
+              item.boxes[bNum].location = cleanLoc;
+            }
+            if (item.boxTotal === 1 || bNum === 1) {
+              item.location = cleanLoc;
+            }
+          }
+        }
+
+        // Če spreminjamo določeno škatlo (ali privzeto škatlo 1)
+        if (item.boxes && item.boxes[bNum]) {
+          const currentBoxCount = Number(item.boxes[bNum].count) || 0;
+          item.boxes[bNum].count = Math.max(0, currentBoxCount + Number(delta));
+        }
+
+        // Izračunaj nove statistike kompletov
+        const stats = DB.getBoxStats(item);
+        item.quantity = stats.completeSets;
         item.lastUpdated = new Date().toISOString();
 
         itemStore.put(item);
+
+        const boxDetailsText = (item.boxTotal > 1) 
+          ? ` (Škatla ${bNum}/${item.boxTotal}${boxLocation ? ` @ ${boxLocation}` : ''}, celih kompletov: ${stats.completeSets})`
+          : (boxLocation ? ` (@ ${boxLocation})` : '');
 
         logStore.add({
           itemId: item.id,
@@ -217,8 +370,8 @@ const DB = {
           itemName: item.name,
           changeType: type,
           changeAmount: Number(delta),
-          resultingQty: newQty,
-          note: note || (delta >= 0 ? 'Prevzem blaga' : 'Izdaja blaga'),
+          resultingQty: item.quantity,
+          note: (note || (delta >= 0 ? 'Prevzem blaga' : 'Izdaja blaga')) + boxDetailsText,
           timestamp: new Date().toISOString()
         });
 
@@ -256,16 +409,136 @@ const DB = {
 
   async seedDemoData() {
     const demoItems = [
-      { sku: '3725150', name: 'Garden chair FJELLERUP', category: 'Vrtno pohištvo', location: 'Regal V-04', quantity: 24, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 4, notes: 'W56 x H93 x D66 cm, Natural' },
-      { sku: '3651003', name: 'Mirror SANDAGER 3 pcs/pk oak', category: 'Ogledala & Dekor', location: 'Regal O-02', quantity: 15, minQuantity: 6, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Ø45/55/70 oak (komplet 3 ogledal)' },
-      { sku: '3690565', name: 'Mirror BALSLEV 35x127 w.oak', category: 'Ogledala & Dekor', location: 'Regal O-04', quantity: 16, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 4, notes: 'W35xH127xD2 cm, Warm oak' },
-      { sku: '3690514', name: 'Dining chair ADSLEV beige/n.oak', category: 'Stoli & Mize', location: 'Regal S-02', quantity: 12, minQuantity: 4, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 2, notes: 'W59 x H82 x D59 cm' },
-      { sku: '3759803', name: 'Stacking chair LARVIK grey', category: 'Stoli & Mize', location: 'Paleta P-08', quantity: 48, minQuantity: 24, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 24, notes: 'Nakladalni stol, siva barva' },
-      { sku: '4334604', name: 'ULVIK vzglavnik 50x70', category: 'Tekstil & Posteljnina', location: 'Regal T-11', quantity: 36, minQuantity: 12, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 12, notes: '50x70 cm, beli' },
-      { sku: '4318500', name: 'PIL VANSE foam 30x47', category: 'Tekstil & Posteljnina', location: 'Regal T-12', quantity: 16, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 8, notes: 'Anatomski vzglavnik iz spominske pene' },
-      { sku: '3650189', name: 'Pouffe AARS Dark Sand', category: 'Oblazinjeno pohištvo', location: 'Regal S-01', quantity: 9, minQuantity: 3, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 3, notes: '65x65x40 cm' },
-      { sku: '3446278', name: 'TM VINGAN 160x200cm', category: 'Vzmetnice & Nadvložki', location: 'Regal M-05', quantity: 4, minQuantity: 2, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Nadvložek 160x200x4cm' },
-      { sku: '3610115', name: 'Pedestal LYNGVIG Ø35 d.oak', category: 'Omarice & Mizice', location: 'Regal M-08', quantity: 6, minQuantity: 2, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Ø35 x H60 cm, temni hrast' }
+      // 1-škatelni artikli (popolni)
+      { 
+        sku: '3725150', 
+        name: 'Garden chair FJELLERUP', 
+        category: 'Vrtno pohištvo', 
+        location: 'Regal V-04', 
+        quantity: 24, 
+        minQuantity: 8, 
+        unit: 'kos', 
+        boxInfo: 'Box 1/1', 
+        boxTotal: 1,
+        boxes: { 1: { count: 24, location: 'Regal V-04' } },
+        piecesPerBox: 4, 
+        notes: 'W56 x H93 x D66 cm, Natural' 
+      },
+      { 
+        sku: '3651003', 
+        name: 'Mirror SANDAGER 3 pcs/pk oak', 
+        category: 'Ogledala & Dekor', 
+        location: 'Regal O-02', 
+        quantity: 15, 
+        minQuantity: 6, 
+        unit: 'kos', 
+        boxInfo: 'Box 1/1', 
+        boxTotal: 1,
+        boxes: { 1: { count: 15, location: 'Regal O-02' } },
+        piecesPerBox: 1, 
+        notes: 'Ø45/55/70 oak (komplet 3 ogledal)' 
+      },
+      { 
+        sku: '3690565', 
+        name: 'Mirror BALSLEV 35x127 w.oak', 
+        category: 'Ogledala & Dekor', 
+        location: 'Regal O-04', 
+        quantity: 16, 
+        minQuantity: 8, 
+        unit: 'kos', 
+        boxInfo: 'Box 1/1', 
+        boxTotal: 1,
+        boxes: { 1: { count: 16, location: 'Regal O-04' } },
+        piecesPerBox: 4, 
+        notes: 'W35xH127xD2 cm, Warm oak' 
+      },
+      { 
+        sku: '3690514', 
+        name: 'Dining chair ADSLEV beige/n.oak', 
+        category: 'Stoli & Mize', 
+        location: 'Regal S-02', 
+        quantity: 12, 
+        minQuantity: 4, 
+        unit: 'kos', 
+        boxInfo: 'Box 1/1', 
+        boxTotal: 1,
+        boxes: { 1: { count: 12, location: 'Regal S-02' } },
+        piecesPerBox: 2, 
+        notes: 'W59 x H82 x D59 cm' 
+      },
+
+      // Več-škatelni artikli: POPOLNI KOMPLETI
+      {
+        sku: '3600520',
+        name: 'Jedilna miza SKOVLUNDE 90x200 hrast',
+        category: 'Stoli & Mize',
+        location: 'Regal M-02 / M-03',
+        quantity: 8,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/2',
+        boxTotal: 2,
+        boxes: {
+          1: { count: 8, location: 'Regal M-02 (plošča)' },
+          2: { count: 8, location: 'Regal M-03 (noge & okovje)' }
+        },
+        piecesPerBox: 1,
+        notes: 'Garnitura iz 2 škatel'
+      },
+      {
+        sku: '3681401',
+        name: 'Garderobna omara TARP 3 vrata bela',
+        category: 'Omarice & Mizice',
+        location: 'Regal G-01 / G-02 / G-03',
+        quantity: 3,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/3',
+        boxTotal: 3,
+        boxes: {
+          1: { count: 3, location: 'Regal G-01 (stranice)' },
+          2: { count: 3, location: 'Regal G-02 (police)' },
+          3: { count: 3, location: 'Regal G-03 (vrata z ogledalom)' }
+        },
+        piecesPerBox: 1,
+        notes: 'Velika omara 150x200 cm, 3 škatle'
+      },
+
+      // Več-škatelni artikli: NEPOPOLNE ŠKATLE (samo en del škatel / manjkajo deli)
+      {
+        sku: '3698710',
+        name: 'Posteljni okvir ABILD 160x200 hrast',
+        category: 'Vzmetnice & Nadvložki',
+        location: 'Regal P-01 / P-02',
+        quantity: 2,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/2',
+        boxTotal: 2,
+        boxes: {
+          1: { count: 5, location: 'Regal P-01 (vzglavje)' },
+          2: { count: 2, location: 'Regal P-02 (okvir & stranice)' }
+        },
+        piecesPerBox: 1,
+        notes: '⚠️ 2 cela kompleta, 3x Box 1/2 je viška (manjka 3x Box 2/2)'
+      },
+      {
+        sku: '3620095',
+        name: 'Pisarniška miza TAMHOLT bela/hrast',
+        category: 'Omarice & Mizice',
+        location: 'Regal D-05',
+        quantity: 0,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/2',
+        boxTotal: 2,
+        boxes: {
+          1: { count: 4, location: 'Regal D-05 (mizna plošča)' },
+          2: { count: 0, location: 'Ni na zalogi' }
+        },
+        piecesPerBox: 1,
+        notes: '⚠️ 0 celih kompletov! Na zalogi 4x Box 1/2, manjka 4x Box 2/2'
+      }
     ];
 
     for (const item of demoItems) {

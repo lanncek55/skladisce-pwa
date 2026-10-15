@@ -934,3 +934,94 @@ body {
 .toast-msg.show {
   opacity: 1;
 }
+
+/* Hitri PDF izpisi */
+.pdf-quick-bar {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 10px 16px;
+}
+
+.btn-pdf-pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-pdf-pill:active {
+  transform: scale(0.97);
+  background: rgba(56, 189, 248, 0.25);
+}
+
+.btn-pdf-pill.warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--warning);
+}
+
+.btn-pdf-pill.warning:active {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+/* Box Breakdown & Locations */
+.box-breakdown-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.box-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.box-breakdown-loc {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.box-breakdown-count {
+  font-weight: 700;
+  color: #fff;
+}
+
+.badge-incomplete {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-complete {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+

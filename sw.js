@@ -1,4 +1,4 @@
-const CACHE_NAME = 'skladisce-pwa-v9';
+const CACHE_NAME = 'skladisce-pwa-v10';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -6,6 +6,8 @@ const ASSETS_TO_CACHE = [
   './app.js',
   './db.js',
   './ocr-parser.js',
+  './jspdf.umd.min.js',
+  './jsbarcode.all.min.js',
   './tesseract.min.js',
   './worker.min.js',
   './tesseract-core-simd-lstm.wasm.js',
