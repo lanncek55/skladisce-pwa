@@ -797,7 +797,16 @@ const RECEIVING_SESSION_KEY = 'skladisce_active_receiving_session';
 function getActiveReceivingSession() {
   try {
     const raw = localStorage.getItem(RECEIVING_SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    if (!session || typeof session !== 'object') return null;
+    if (!session.initialStock || typeof session.initialStock !== 'object') {
+      session.initialStock = {};
+    }
+    if (!Array.isArray(session.entries)) {
+      session.entries = [];
+    }
+    return session;
   } catch (e) {
     return null;
   }
@@ -835,6 +844,8 @@ async function recordReceivingEntry(sku, name, boxNum, boxTotal, shelf, count) {
   const bNum = Math.max(1, parseInt(boxNum, 10) || 1);
   const bTotal = Math.max(1, parseInt(boxTotal, 10) || 1);
   const qty = Math.max(1, parseInt(count, 10) || 1);
+
+  if (!session.initialStock) session.initialStock = {};
 
   // Če za ta SKU še nimamo posnetega začetnega stanja pred pošiljko, ga preberemo iz DB
   if (!session.initialStock[cleanSku]) {
@@ -881,10 +892,12 @@ async function recordReceivingEntry(sku, name, boxNum, boxTotal, shelf, count) {
  * Izračuna kompletiranje garnitur po točnem pravilu:
  * - Če na paleti prideta 1/2 in 2/2 in imamo v skladišču že 2/2, se NE izpiše kompletirano.
  * - Le tiste škatle, ki so v tej pošiljki dejansko dopolnile manjkajoče škatle iz predhodne zaloge, štejejo.
+ * - Vse vmesne izdaje iz skladišča se NE štejejo v prevzemno pošiljko in ne zmanjšujejo prevzetih škatel.
  */
 function calculateSkuCompletion(sku, boxTotal, initialBoxCounts = {}, entries = []) {
   const bTotal = Math.max(1, parseInt(boxTotal, 10) || 1);
-  const skuEntries = entries.filter(e => String(e.sku).trim() === String(sku).trim());
+  const skuEntries = (Array.isArray(entries) ? entries : []).filter(e => e && String(e.sku).trim() === String(sku).trim());
+  const initBoxCounts = (initialBoxCounts && typeof initialBoxCounts === 'object') ? initialBoxCounts : {};
 
   // Seštevek prejetih škatel v tej pošiljki po boxNum
   const batchCounts = {};
@@ -899,7 +912,7 @@ function calculateSkuCompletion(sku, boxTotal, initialBoxCounts = {}, entries = 
   // Začetna zaloga pred pošiljko
   const initCounts = {};
   for (let b = 1; b <= bTotal; b++) {
-    initCounts[b] = Number(initialBoxCounts[b]) || 0;
+    initCounts[b] = Number(initBoxCounts[b]) || 0;
   }
 
   // Število kompletov pred začetkom pošiljke
@@ -908,14 +921,14 @@ function calculateSkuCompletion(sku, boxTotal, initialBoxCounts = {}, entries = 
   // Število celih kompletov znotraj same pošiljke (prišli na paleti skupaj)
   const batchMin = Math.min(...Object.values(batchCounts));
 
-  // Skupno novo stanje v skladišču
+  // Skupno stanje po prejemu te pošiljke
   const currentCounts = {};
   for (let b = 1; b <= bTotal; b++) {
     currentCounts[b] = initCounts[b] + batchCounts[b];
   }
   const currentMin = Math.min(...Object.values(currentCounts));
 
-  // Celotno povečanje celih garnitur v skladišču
+  // Celotno povečanje celih garnitur
   const totalNewSets = Math.max(0, currentMin - initMin);
 
   // Kompletirano izključno iz predhodne zaloge (stara zaloga dopolnjena z novimi škatlami)
@@ -953,153 +966,202 @@ function calculateSkuCompletion(sku, boxTotal, initialBoxCounts = {}, entries = 
   };
 }
 
-function updateReceivingBannerUI() {
-  const banner = document.getElementById('receivingBanner');
-  const title = document.getElementById('receivingBannerTitle');
-  const sub = document.getElementById('receivingBannerSub');
-  const btn = document.getElementById('btnOpenReceivingModal');
-  if (!banner || !title || !sub || !btn) return;
-
+window.handleReceivingBannerClick = function() {
   const session = getActiveReceivingSession();
   if (session && session.active) {
-    banner.style.display = 'flex';
-    banner.style.background = 'rgba(16, 185, 129, 0.12)';
-    banner.style.borderColor = 'rgba(16, 185, 129, 0.35)';
-
-    const totalBoxes = (session.entries || []).reduce((sum, e) => sum + (Number(e.count) || 0), 0);
-    
-    // Seštejemo novo kompletirane
-    let totalCompleted = 0;
-    const skus = [...new Set((session.entries || []).map(e => e.sku))];
-    for (const sku of skus) {
-      const entry = session.entries.find(e => e.sku === sku);
-      const res = calculateSkuCompletion(sku, entry.boxTotal || 1, session.initialStock[sku], session.entries);
-      totalCompleted += res.completedFromOld;
-    }
-
-    title.innerHTML = `📥 Prevzem: <strong>${escapeHtml(session.name)}</strong> <span style="font-size:0.75rem; color:#10b981; font-weight:normal;">(V teku)</span>`;
-    sub.innerHTML = `Prevzeto: <strong>${totalBoxes}</strong> škatel &bull; Novo kompletiranih: <strong style="color:#10b981;">${totalCompleted}</strong>`;
-    btn.textContent = '🏁 Pregled in zaključek';
-    btn.style.background = '#10b981';
+    openReceivingModal();
   } else {
-    banner.style.display = 'flex';
-    banner.style.background = 'rgba(255, 255, 255, 0.03)';
-    banner.style.borderColor = 'var(--border)';
-    title.innerHTML = `📦 Prevzemna pošiljka <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(Ni aktivna)</span>`;
-    sub.innerHTML = `Začnite večdnevni prevzem za spremljanje kompletiranja in manjkajočih delov.`;
-    btn.textContent = '▶ Začni nov prevzem';
-    btn.style.background = 'var(--primary)';
+    const name = prompt('Vnesite naziv ali številko prevzemne pošiljke:', `Pošiljka ${new Date().toLocaleDateString('sl-SI')}`);
+    if (name !== null) {
+      startReceivingSession(name.trim());
+    }
+  }
+};
+
+function updateReceivingBannerUI() {
+  try {
+    const banner = document.getElementById('receivingBanner');
+    const title = document.getElementById('receivingBannerTitle');
+    const sub = document.getElementById('receivingBannerSub');
+    const btn = document.getElementById('btnOpenReceivingModal');
+    if (!banner || !title || !sub || !btn) return;
+
+    const session = getActiveReceivingSession();
+    if (session && session.active) {
+      banner.style.display = 'flex';
+      banner.style.background = 'rgba(16, 185, 129, 0.12)';
+      banner.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+
+      const entries = Array.isArray(session.entries) ? session.entries : [];
+      const totalBoxes = entries.reduce((sum, e) => sum + (Number(e.count) || 0), 0);
+      
+      let totalCompleted = 0;
+      const skus = [...new Set(entries.map(e => e.sku).filter(Boolean))];
+      for (const sku of skus) {
+        const entry = entries.find(e => e.sku === sku);
+        if (!entry) continue;
+        const initMap = (session.initialStock && session.initialStock[sku]) ? session.initialStock[sku] : {};
+        const res = calculateSkuCompletion(sku, entry.boxTotal || 1, initMap, entries);
+        totalCompleted += res.completedFromOld;
+      }
+
+      title.innerHTML = `📥 Prevzem: <strong>${escapeHtml(session.name)}</strong> <span style="font-size:0.75rem; color:#10b981; font-weight:normal;">(V teku)</span>`;
+      sub.innerHTML = `Prevzeto: <strong>${totalBoxes}</strong> škatel &bull; Novo kompletiranih: <strong style="color:#10b981;">${totalCompleted}</strong>`;
+      btn.textContent = '🏁 Pregled in zaključek';
+      btn.style.background = '#10b981';
+    } else {
+      banner.style.display = 'flex';
+      banner.style.background = 'rgba(255, 255, 255, 0.03)';
+      banner.style.borderColor = 'var(--border)';
+      title.innerHTML = `📦 Prevzemna pošiljka <span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(Ni aktivna)</span>`;
+      sub.innerHTML = `Začnite večdnevni prevzem za spremljanje kompletiranja in manjkajočih delov.`;
+      btn.textContent = '▶ Začni nov prevzem';
+      btn.style.background = 'var(--primary)';
+    }
+  } catch (err) {
+    console.error('Napaka v updateReceivingBannerUI:', err);
   }
 }
 
 window.openReceivingModal = function() {
-  const session = getActiveReceivingSession();
-  if (!session) {
-    showToast('Ni aktivne prevzemne pošiljke.');
-    return;
-  }
-
-  const modal = document.getElementById('modalReceivingBatch');
-  document.getElementById('receivingModalTitle').textContent = session.name;
-  
-  const startDate = new Date(session.startedAt).toLocaleDateString('sl-SI') + ' ob ' + new Date(session.startedAt).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('receivingModalDate').textContent = `Začetek prevzema: ${startDate}`;
-
-  const totalBoxes = (session.entries || []).reduce((sum, e) => sum + (Number(e.count) || 0), 0);
-  document.getElementById('recStatTotalBoxes').textContent = totalBoxes;
-
-  // Analiza po artiklih
-  const skus = [...new Set((session.entries || []).map(e => e.sku))];
-  let totalCompletedSets = 0;
-  let totalMissingBoxes = 0;
-
-  const completedItems = [];
-  const missingItems = [];
-
-  for (const sku of skus) {
-    const entry = session.entries.find(e => e.sku === sku);
-    const boxTotal = entry.boxTotal || 1;
-    const res = calculateSkuCompletion(sku, boxTotal, session.initialStock[sku], session.entries);
-
-    if (res.completedFromOld > 0) {
-      totalCompletedSets += res.completedFromOld;
-      completedItems.push({
-        sku,
-        name: entry.name,
-        boxTotal,
-        completedCount: res.completedFromOld,
-        currentMin: res.currentMin
-      });
+  try {
+    const session = getActiveReceivingSession();
+    if (!session) {
+      showToast('Ni aktivne prevzemne pošiljke.');
+      return;
     }
 
-    if (res.missingInBatch.length > 0) {
-      const missCount = res.missingInBatch.reduce((sum, m) => sum + m.missingCount, 0);
-      totalMissingBoxes += missCount;
-      missingItems.push({
-        sku,
-        name: entry.name,
-        boxTotal,
-        missing: res.missingInBatch
-      });
+    const modal = document.getElementById('modalReceivingBatch');
+    if (!modal) {
+      console.error('modalReceivingBatch ni najden v DOM!');
+      return;
     }
+
+    const titleEl = document.getElementById('receivingModalTitle');
+    if (titleEl) titleEl.textContent = session.name || 'Prevzem pošiljke';
+    
+    const dateEl = document.getElementById('receivingModalDate');
+    if (dateEl) {
+      const startDate = session.startedAt 
+        ? (new Date(session.startedAt).toLocaleDateString('sl-SI') + ' ob ' + new Date(session.startedAt).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' }))
+        : 'danes';
+      dateEl.textContent = `Začetek prevzema: ${startDate}`;
+    }
+
+    const entries = Array.isArray(session.entries) ? session.entries : [];
+    const initialStockMap = (session.initialStock && typeof session.initialStock === 'object') ? session.initialStock : {};
+
+    const totalBoxes = entries.reduce((sum, e) => sum + (Number(e.count) || 0), 0);
+    const totalEl = document.getElementById('recStatTotalBoxes');
+    if (totalEl) totalEl.textContent = totalBoxes;
+
+    // Analiza po artiklih
+    const skus = [...new Set(entries.map(e => e.sku).filter(Boolean))];
+    let totalCompletedSets = 0;
+    let totalMissingBoxes = 0;
+
+    const completedItems = [];
+    const missingItems = [];
+
+    for (const sku of skus) {
+      const entry = entries.find(e => e.sku === sku);
+      if (!entry) continue;
+      const boxTotal = Math.max(1, parseInt(entry.boxTotal, 10) || 1);
+      const initBoxStock = initialStockMap[sku] || {};
+      const res = calculateSkuCompletion(sku, boxTotal, initBoxStock, entries);
+
+      if (res.completedFromOld > 0) {
+        totalCompletedSets += res.completedFromOld;
+        completedItems.push({
+          sku,
+          name: entry.name,
+          boxTotal,
+          completedCount: res.completedFromOld,
+          currentMin: res.currentMin
+        });
+      }
+
+      if (res.missingInBatch && res.missingInBatch.length > 0) {
+        const missCount = res.missingInBatch.reduce((sum, m) => sum + m.missingCount, 0);
+        totalMissingBoxes += missCount;
+        missingItems.push({
+          sku,
+          name: entry.name,
+          boxTotal,
+          missing: res.missingInBatch
+        });
+      }
+    }
+
+    const compEl = document.getElementById('recStatCompleted');
+    if (compEl) compEl.textContent = totalCompletedSets;
+
+    const missEl = document.getElementById('recStatMissing');
+    if (missEl) missEl.textContent = totalMissingBoxes;
+
+    // Izpis kompletiranih
+    const compListEl = document.getElementById('recCompletedList');
+    if (compListEl) {
+      if (completedItems.length === 0) {
+        compListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki nobena garnitura ni bila na novo dopolnjena iz predhodne zaloge.</div>`;
+      } else {
+        compListEl.innerHTML = completedItems.map(c => `
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(c.name)}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);"># ${escapeHtml(c.sku)} &bull; ${c.boxTotal}-delna garnitura &bull; Skupaj na zalogi: ${c.currentMin} kpl</div>
+            </div>
+            <div style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.85rem; border-radius: 6px; padding: 4px 8px; white-space: nowrap;">
+              +${c.completedCount} kpl
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Izpis primanjkljajev
+    const missListEl = document.getElementById('recMissingList');
+    if (missListEl) {
+      if (missingItems.length === 0) {
+        missListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">Vsi večdelni artikli v tej pošiljki so prispeli v enakih količinah (brez primanjkljajev).</div>`;
+      } else {
+        missListEl.innerHTML = missingItems.map(m => `
+          <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 8px 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(m.name)}</div>
+              <span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;"># ${escapeHtml(m.sku)}</span>
+            </div>
+            <div style="font-size: 0.76rem; color: #fbbf24;">
+              ${m.missing.map(x => `⚠️ Manjka ${x.missingCount}x Škatla ${x.boxNum}/${x.boxTotal} (prevzeto le ${x.receivedCount} kos)`).join('<br>')}
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Seznam vseh prevzetih postavk
+    const allListEl = document.getElementById('recAllReceivedList');
+    if (allListEl) {
+      if (entries.length === 0) {
+        allListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki še ni prevzetih postavk.</div>`;
+      } else {
+        allListEl.innerHTML = entries.slice().reverse().map(e => `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 0.78rem;">
+            <div>
+              <strong style="color: #fff;">${escapeHtml(e.name)}</strong>
+              <span style="color: var(--text-muted); font-size: 0.72rem;">(#${escapeHtml(e.sku)} &bull; Šk.${e.boxNum}/${e.boxTotal} &bull; ${escapeHtml(e.shelf)})</span>
+            </div>
+            <div style="font-weight: 700; color: #10b981;">+${e.count} kos</div>
+          </div>
+        `).join('');
+      }
+    }
+
+    modal.style.display = 'flex';
+  } catch (err) {
+    console.error('Napaka v openReceivingModal:', err);
+    showToast('Napaka pri odpiranju prevzema: ' + err.message);
   }
-
-  document.getElementById('recStatCompleted').textContent = totalCompletedSets;
-  document.getElementById('recStatMissing').textContent = totalMissingBoxes;
-
-  // Izpis kompletiranih
-  const compListEl = document.getElementById('recCompletedList');
-  if (completedItems.length === 0) {
-    compListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki nobena garnitura ni bila na novo dopolnjena iz predhodne zaloge.</div>`;
-  } else {
-    compListEl.innerHTML = completedItems.map(c => `
-      <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(c.name)}</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted);"># ${escapeHtml(c.sku)} &bull; ${c.boxTotal}-delna garnitura &bull; Skupaj na zalogi: ${c.currentMin} kpl</div>
-        </div>
-        <div style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.85rem; border-radius: 6px; padding: 4px 8px; white-space: nowrap;">
-          +${c.completedCount} kpl
-        </div>
-      </div>
-    `).join('');
-  }
-
-  // Izpis primanjkljajev
-  const missListEl = document.getElementById('recMissingList');
-  if (missingItems.length === 0) {
-    missListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">Vsi večdelni artikli v tej pošiljki so prispeli v enakih količinah (brez primanjkljajev).</div>`;
-  } else {
-    missListEl.innerHTML = missingItems.map(m => `
-      <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 8px 10px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-          <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(m.name)}</div>
-          <span style="font-size: 0.72rem; color: #fbbf24; font-weight: 700;"># ${escapeHtml(m.sku)}</span>
-        </div>
-        <div style="font-size: 0.76rem; color: #fbbf24;">
-          ${m.missing.map(x => `⚠️ Manjka ${x.missingCount}x Škatla ${x.boxNum}/${x.boxTotal} (prevzeto le ${x.receivedCount} kos)`).join('<br>')}
-        </div>
-      </div>
-    `).join('');
-  }
-
-  // Seznam vseh prevzetih postavk
-  const allListEl = document.getElementById('recAllReceivedList');
-  if (session.entries.length === 0) {
-    allListEl.innerHTML = `<div style="font-size:0.8rem; color:var(--text-muted); font-style:italic; padding:6px 0;">V tej pošiljki še ni prevzetih postavk.</div>`;
-  } else {
-    allListEl.innerHTML = session.entries.slice().reverse().map(e => `
-      <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 0.78rem;">
-        <div>
-          <strong style="color: #fff;">${escapeHtml(e.name)}</strong>
-          <span style="color: var(--text-muted); font-size: 0.72rem;">(#${escapeHtml(e.sku)} &bull; Šk.${e.boxNum}/${e.boxTotal} &bull; ${escapeHtml(e.shelf)})</span>
-        </div>
-        <div style="font-weight: 700; color: #10b981;">+${e.count} kos</div>
-      </div>
-    `).join('');
-  }
-
-  modal.style.display = 'flex';
 };
 
 window.finishReceivingSession = function() {

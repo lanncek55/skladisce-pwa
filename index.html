@@ -82,7 +82,7 @@
             </div>
           </div>
         </div>
-        <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
+        <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" onclick="handleReceivingBannerClick()" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
           🏁 Zaključi prevzem
         </button>
       </div>
@@ -704,6 +704,11 @@
           <div style="font-size: 0.7rem; color: #fbbf24; font-weight: 600;">⚠️ Primanjkljaj</div>
           <div style="font-size: 1.25rem; font-weight: 800; color: #fbbf24;" id="recStatMissing">0</div>
         </div>
+      </div>
+
+      <!-- Jasno obvestilo o ločenosti prevzemov od izdaj -->
+      <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 7px 10px; margin: 8px 0; font-size: 0.76rem; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+        <span>ℹ️</span> <span><strong>Zabeleženi so izključno prevzemi blaga.</strong> Morebitne vmesne izdaje kupcem so ločene in ne vplivajo na to pošiljko.</span>
       </div>
 
       <!-- Seznam kompletiranih artiklov -->
