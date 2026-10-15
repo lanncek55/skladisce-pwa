@@ -492,7 +492,7 @@ async function initOCRWorker() {
         load_bigram_dawg: '0',
         bidi_debug: '0',
         tessedit_enable_doc_dict: '0',
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/:.-xX, '
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/:.-xX,()# '
       });
 
       ocrWorker = worker;
@@ -617,7 +617,7 @@ function setupBoxOCRScanner() {
       return;
     }
 
-    const { canvas } = getCroppedCanvasFromVideo(video, 440);
+    const { canvas } = getCroppedCanvasFromVideo(video, 1000);
     await processImageWithOCR(canvas);
   });
 
@@ -643,8 +643,8 @@ function setupBoxOCRScanner() {
     img.onload = async () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      // Optimalna ločljivost za hitro obdelavo
-      const scale = Math.min(1, 600 / img.width);
+      // Visoka ločljivost do 1400px za natančno prepoznavo malih podrobnosti
+      const scale = Math.min(1, 1400 / img.width);
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -706,14 +706,14 @@ async function runAutoScanTick() {
 
   // Preveri naslednji frame
   if (isScanLoopRunning) {
-    setTimeout(runAutoScanTick, 140);
+    setTimeout(runAutoScanTick, 150);
   }
 }
 
 /**
  * Analiza sličice v realnem času:
- * - 440px ločljivost za 65% manj slikovnih pik
- * - Izločitev zamegljenih/enoličnih sličic v 0.2ms
+ * - 1000px kristalno čista visoka ločljivost za natančno branje brez napak
+ * - Zvezno raztegovanje ravni svetlosti (Auto-Levels) ohranja zglajene oblike črk
  * - Native TPU / TextDetector, če je na voljo (15ms!)
  * - Izmenično preverjanje 0° in 180° (vedno le EN kot na sličico)
  */
@@ -724,8 +724,8 @@ async function processAutoScanFrame(video) {
   const liveBadge = document.getElementById('scanLiveIndicator');
 
   try {
-    // 1. Zajemimo sličico z optimalno širino 440px
-    const { canvas: frameCanvas, hasContent } = getCroppedCanvasFromVideo(video, 440);
+    // 1. Zajemimo sličico z visoko ločljivostjo (1000px za nič napak)
+    const { canvas: frameCanvas, hasContent } = getCroppedCanvasFromVideo(video, 1000);
 
     // Če ni dovolj kontrasta (premikanje telefona, prazna tla ali lepenka brez črk), takoj preskoči!
     if (!hasContent) {
@@ -807,8 +807,8 @@ async function startCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
       }
     });
 
@@ -836,22 +836,22 @@ function stopCamera() {
 }
 
 /**
- * Izreže zgolj območje vizirja za škatlo (cca 70% širine, 42% višine)
- * In pomanjša na 440px za bliskovit OCR brez zakasnitev!
+ * Izreže območje vizirja za škatlo (cca 72% širine, 44% višine)
+ * In ohrani visoko ločljivost (1000px) za popolno ostrino malih napisov (Box 1/1, 2 pcs ipd.)
  */
-function getCroppedCanvasFromVideo(video, targetWidth = 440) {
+function getCroppedCanvasFromVideo(video, targetWidth = 1000) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  const vw = video.videoWidth || 1280;
-  const vh = video.videoHeight || 720;
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
 
-  const cropW = Math.round(vw * 0.70);
-  const cropH = Math.round(vh * 0.42);
+  const cropW = Math.round(vw * 0.72);
+  const cropH = Math.round(vh * 0.44);
   const cropX = Math.round((vw - cropW) / 2);
   const cropY = Math.round((vh - cropH) / 2);
 
-  // Optimizacija: širina max 440px (zmanjša število pikslov za 65%!)
+  // Visoka ločljivost do 1000px za jasnost
   const targetW = Math.min(cropW, targetWidth);
   const scale = targetW / cropW;
   const targetH = Math.round(cropH * scale);
@@ -866,9 +866,9 @@ function getCroppedCanvasFromVideo(video, targetWidth = 440) {
 }
 
 /**
- * Hitro predprocesiranje z merjenjem kontrasta:
- * - V 0.2ms preveri, ali je v kadru sploh besedilo ali zgolj prazen karton/tla
- * - Binarizira besedilo v črno/belo, kar omogoči Tesseractu 3x hitrejšo klasifikacijo
+ * Zvezna izravnava svetlosti (Auto-Levels) z ohranjanjem zglajenih robov:
+ * - V 0.2ms preveri, ali je v kadru besedilo
+ * - Raztegne kontrast in poudari temen tisk proti lepenki brez uničenja oblike znakov!
  */
 function preprocessAndCheckContrast(canvas, ctx) {
   try {
@@ -885,21 +885,28 @@ function preprocessAndCheckContrast(canvas, ctx) {
     }
 
     const contrast = maxLum - minLum;
-    // Če je kontrast premajhen (enoličen karton brez črk), preskoči OCR
-    if (contrast < 45) {
+    // Če je kontrast premajhen (enoličen prazen karton ali tema), preskoči OCR
+    if (contrast < 35) {
       return false;
     }
 
-    // Visokokontrastna binarizacija
-    const threshold = minLum + contrast * 0.45;
+    const range = contrast || 1;
 
+    // Zvezna izravnava svetlobnih nivojev (Auto-Levels)
     for (let i = 0; i < d.length; i += 4) {
       const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-      const val = (gray < threshold) ? 0 : 255;
-      d[i] = val;
-      d[i+1] = val;
-      d[i+2] = val;
+      const normalized = Math.min(255, Math.max(0, ((gray - minLum) / range) * 255));
+      
+      // Rahlo nelinearno poudarjanje temnega tiska (črnila) proti ozadju kartona
+      const enhanced = (normalized < 130)
+        ? Math.pow(normalized / 130, 1.2) * 130
+        : normalized;
+
+      d[i] = enhanced;
+      d[i+1] = enhanced;
+      d[i+2] = enhanced;
     }
+
     ctx.putImageData(imgData, 0, 0);
     return true;
   } catch (e) {
