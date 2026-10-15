@@ -25,9 +25,14 @@
       <div class="logo-icon">📦</div>
       <div class="app-title">Skladišče</div>
     </div>
-    <div id="connectionStatus" class="offline-pill online">
-      <span class="dot"></span>
-      <span id="connectionText">Povezano</span>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button class="btn-sync-header" id="btnHeaderBLESync" title="Brezžična BLE sinhronizacija z delavcem (brez interneta)">
+        <span>📡</span> Uskladi
+      </button>
+      <div id="connectionStatus" class="offline-pill online">
+        <span class="dot"></span>
+        <span id="connectionText">Povezano</span>
+      </div>
     </div>
   </header>
 
@@ -251,6 +256,25 @@
     <!-- ZAVIHEK 5: NASTAVITVE & PODATKI -->
     <section id="tab-settings" class="tab-content" style="display: none; padding: 16px;">
       <h2 style="font-size: 1.1rem; margin-bottom: 14px;">Varnostno kopiranje & Sinhronizacija</h2>
+
+      <!-- Brezžična BLE sinhronizacija -->
+      <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(2, 132, 199, 0.08)); border: 1.5px solid rgba(56, 189, 248, 0.4); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <span style="font-size: 1.4rem;">📡</span>
+          <h3 style="font-size: 1.05rem; margin: 0; color: #fff;">Brezžična BLE sinhronizacija (brez interneta)</h3>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.4;">
+          Uskladite zalogo z delavcem v kleti brez parjenja in brez wifija. Vse izdane škatle se <strong>samodejno zmanjšajo</strong>, novi artikli pa dodajo v 1–2 sekundah.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button class="btn-primary" id="btnOpenBLESend" style="margin: 0; padding: 12px; font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🚀</span> Pošlji zalogo
+          </button>
+          <button class="btn-secondary" id="btnOpenBLEReceive" style="margin: 0; padding: 12px; font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 6px; border-color: rgba(56, 189, 248, 0.5); color: #38bdf8;">
+            <span>📥</span> Prejmi zalogo
+          </button>
+        </div>
+      </div>
 
       <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
         <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Izvoz podatkov</h3>
@@ -514,6 +538,46 @@
         <button type="button" class="btn-secondary" id="btnCancelDispatch" style="margin: 0; width: auto; padding: 10px 16px;">Zapri</button>
         <button type="button" class="btn-primary" id="btnFinishDispatch" style="margin: 0; flex: 1; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;" disabled>
           🎉 Vse pobrano &mdash; Zaključi izdajo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: BLE BREZZICNA SINHRONIZACIJA -->
+  <div class="modal-backdrop" id="modalBLESync" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.4rem;">📡</span>
+          <h3 class="modal-title" id="bleSyncTitle">BLE Sinhronizacija</h3>
+        </div>
+        <button class="btn-close" id="btnCloseBLESyncModal">&times;</button>
+      </div>
+
+      <div class="ble-radar-container">
+        <!-- Radar animacija -->
+        <div class="ble-radar-pulse" id="bleRadarPulse">
+          <div class="ble-radar-circle"></div>
+          <div class="ble-radar-circle"></div>
+          <div class="ble-radar-icon" id="bleRadarIcon">📡</div>
+        </div>
+
+        <h4 id="bleSyncStatusTitle" style="font-size: 1.05rem; margin-bottom: 6px; color: #fff;">
+          Pripravljam povezavo...
+        </h4>
+        <p id="bleSyncStatusDesc" style="font-size: 0.82rem; color: var(--text-muted); max-width: 280px; margin-bottom: 14px;">
+          Sodelavec naj na svojem telefonu odpre sinhronizacijo.
+        </p>
+
+        <!-- Povzetek uspeha (prikazan ob zaključku) -->
+        <div id="bleSyncSummaryBox" style="display: none; width: 100%;" class="ble-summary-card">
+          <!-- Dinamično napolnjeno z rezultatom -->
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 10px;">
+        <button type="button" class="btn-secondary" id="btnCancelBLESync" style="margin: 0; flex: 1; padding: 12px;">
+          Prekliči
         </button>
       </div>
     </div>

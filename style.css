@@ -1393,4 +1393,79 @@ body {
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
 }
 
+/* ==========================================================================
+   BREZZICNA BLE SINHRONIZACIJA BREZ PARJENJA
+   ========================================================================== */
+.btn-sync-header {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s;
+}
+.btn-sync-header:hover, .btn-sync-header:active {
+  background: #38bdf8;
+  color: #0b0f19;
+}
+
+.ble-radar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.ble-radar-pulse {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ble-radar-circle {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.25);
+  animation: blePulse 1.8s infinite ease-out;
+}
+
+.ble-radar-circle:nth-child(2) {
+  animation-delay: 0.6s;
+}
+
+.ble-radar-icon {
+  font-size: 2.2rem;
+  z-index: 2;
+}
+
+@keyframes blePulse {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.ble-summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin: 12px 0;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+
 

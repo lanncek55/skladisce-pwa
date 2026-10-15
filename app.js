@@ -31,6 +31,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 6b. Priprava modula za inventuro
   setupAuditModule();
 
+  // 6c. Priprava brezžične BLE sinhronizacije
+  setupBLESync();
+
   // 7. Priprava optičnega čitalnika škatel (OCR)
   setupBoxOCRScanner();
 
@@ -2891,6 +2894,240 @@ window.loadDemoData = async function() {
   showToast('Testni skladiščni artikli uspešno naloženi!');
   await refreshInventory();
 };
+
+/* =========================================================================
+   7b. BREZZICNA BLE SINHRONIZACIJA BREZ PARJENJA (100% OFFLINE P2P)
+   ========================================================================= */
+function setupBLESync() {
+  const btnHeader = document.getElementById('btnHeaderBLESync');
+  const btnSend = document.getElementById('btnOpenBLESend');
+  const btnReceive = document.getElementById('btnOpenBLEReceive');
+  const btnCancel = document.getElementById('btnCancelBLESync');
+  const btnClose = document.getElementById('btnCloseBLESyncModal');
+
+  if (btnHeader) {
+    btnHeader.addEventListener('click', () => {
+      openBLESyncChoice();
+    });
+  }
+
+  if (btnSend) {
+    btnSend.addEventListener('click', () => {
+      startBLESending();
+    });
+  }
+
+  if (btnReceive) {
+    btnReceive.addEventListener('click', () => {
+      startBLEReceiving();
+    });
+  }
+
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      cancelBLESync();
+    });
+  }
+
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      cancelBLESync();
+    });
+  }
+
+  // Preveri, če je bila aplikacija odprta z zunanjim paketom (Intent)
+  setTimeout(() => {
+    checkNativeIncomingSync();
+  }, 1000);
+}
+
+function openBLESyncChoice() {
+  const modal = document.getElementById('modalBLESync');
+  const title = document.getElementById('bleSyncStatusTitle');
+  const desc = document.getElementById('bleSyncStatusDesc');
+  const summary = document.getElementById('bleSyncSummaryBox');
+  const radar = document.getElementById('bleRadarPulse');
+  const cancelBtn = document.getElementById('btnCancelBLESync');
+
+  if (!modal) return;
+
+  radar.style.display = 'none';
+  summary.style.display = 'block';
+  summary.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 6px;">
+      <button class="btn-primary" onclick="startBLESending()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <span>🚀</span> Pošlji mojo zalogo (Oddajaj)
+      </button>
+      <button class="btn-secondary" onclick="startBLEReceiving()" style="margin: 0; padding: 13px; font-weight: 700; font-size: 0.95rem; color: #38bdf8; border-color: rgba(56, 189, 248, 0.5); display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <span>📥</span> Prejmi zalogo od sodelavca
+      </button>
+    </div>
+  `;
+
+  title.textContent = 'Brezžična sinhronizacija v kleti';
+  desc.textContent = 'Brez parjenja in brez interneta. Izberite, ali želite oddajati ali sprejeti zalogo.';
+  cancelBtn.textContent = 'Zapri';
+  modal.style.display = 'flex';
+}
+
+async function startBLESending() {
+  const modal = document.getElementById('modalBLESync');
+  const title = document.getElementById('bleSyncStatusTitle');
+  const desc = document.getElementById('bleSyncStatusDesc');
+  const summary = document.getElementById('bleSyncSummaryBox');
+  const radar = document.getElementById('bleRadarPulse');
+  const radarIcon = document.getElementById('bleRadarIcon');
+  const cancelBtn = document.getElementById('btnCancelBLESync');
+
+  modal.style.display = 'flex';
+  radar.style.display = 'flex';
+  radarIcon.textContent = '📡';
+  summary.style.display = 'none';
+  cancelBtn.textContent = 'Prekliči';
+
+  title.textContent = 'Oddajam zalogo prek BLE...';
+  desc.textContent = 'Sodelavec naj na svojem telefonu pritisne "Prejmi zalogo". Čakam povezavo...';
+
+  try {
+    const items = await DB.getAllItems();
+    const logs = await DB.getAllLogs();
+    const payload = {
+      version: 1,
+      type: 'skladisce_sync',
+      exportedAt: new Date().toISOString(),
+      items,
+      logs
+    };
+    const jsonStr = JSON.stringify(payload);
+
+    if (isCapacitorNative() && window.Capacitor?.Plugins?.BLESync) {
+      const res = await window.Capacitor.Plugins.BLESync.startSending({ data: jsonStr });
+      if (res && res.success) {
+        radar.style.display = 'none';
+        summary.style.display = 'block';
+        title.textContent = '🎉 Uspešno poslano sodelavcu!';
+        desc.textContent = 'Sodelavec je v celoti prejel zadnje stanje zaloge in vse premike.';
+        summary.innerHTML = `
+          <div style="color: #34d399; font-weight: 700; margin-bottom: 4px;">✓ Prenos zaključen</div>
+          <div>Oddanih ${items.length} artiklov in ${logs.length} zapisov premikov.</div>
+        `;
+        playSuccessBeep();
+        cancelBtn.textContent = 'Zaključi';
+      }
+    } else {
+      radar.style.display = 'none';
+      summary.style.display = 'block';
+      title.textContent = 'BLE zahteva nameščen APK';
+      desc.textContent = 'Brezžična BLE povezava deluje na Android napravi (APK). V brskalniku uporabite izvoz varnostne kopije.';
+    }
+  } catch (err) {
+    console.warn('BLE Send error:', err);
+    radar.style.display = 'none';
+    title.textContent = 'Oddajanje zaključeno / prekinjeno';
+    desc.textContent = err.message || String(err);
+  }
+}
+
+async function startBLEReceiving() {
+  const modal = document.getElementById('modalBLESync');
+  const title = document.getElementById('bleSyncStatusTitle');
+  const desc = document.getElementById('bleSyncStatusDesc');
+  const summary = document.getElementById('bleSyncSummaryBox');
+  const radar = document.getElementById('bleRadarPulse');
+  const radarIcon = document.getElementById('bleRadarIcon');
+  const cancelBtn = document.getElementById('btnCancelBLESync');
+
+  modal.style.display = 'flex';
+  radar.style.display = 'flex';
+  radarIcon.textContent = '🔍';
+  summary.style.display = 'none';
+  cancelBtn.textContent = 'Prekliči';
+
+  title.textContent = 'Iščem sodelavca v bližini...';
+  desc.textContent = 'Telefon usmerite ali približajte sodelavcu (1–5 metrov).';
+
+  try {
+    if (isCapacitorNative() && window.Capacitor?.Plugins?.BLESync) {
+      const res = await window.Capacitor.Plugins.BLESync.startReceiving();
+      if (res && res.json) {
+        title.textContent = 'Usklajujem bazo zaloge...';
+        desc.textContent = 'Prejeti podatki se obdelujejo...';
+
+        const parsed = JSON.parse(res.json);
+        const mergeResult = await DB.mergeSyncData(parsed);
+
+        await refreshInventory();
+        await refreshLogs();
+        playSuccessBeep();
+
+        radar.style.display = 'none';
+        summary.style.display = 'block';
+        title.textContent = '🎉 Zaloga uspešno usklajena!';
+        desc.textContent = 'Vse izvedene izdaje so se samodejno zmanjšale na ustreznih policah.';
+
+        let newNamesHtml = '';
+        if (mergeResult.addedItemNames && mergeResult.addedItemNames.length > 0) {
+          newNamesHtml = `<div style="margin-top: 6px; font-size: 0.78rem; color: #38bdf8;">Novi artikli: ${mergeResult.addedItemNames.slice(0, 3).join(', ')}${mergeResult.addedItemNames.length > 3 ? '...' : ''}</div>`;
+        }
+
+        summary.innerHTML = `
+          <div style="font-weight: 700; color: #34d399; margin-bottom: 6px;">✓ Uspešno posodobljeno:</div>
+          <div>✨ <strong>${mergeResult.addedCount}</strong> novih artiklov dodanih v bazo</div>
+          <div>📦 <strong>${mergeResult.updatedCount}</strong> stanj na policah posodobljenih</div>
+          ${mergeResult.decreasedCount > 0 ? `<div style="color: #f87171; font-weight: 600;">📤 <strong>${mergeResult.decreasedCount}</strong> artiklov z zmanjšano zalogo (izdaje)</div>` : ''}
+          <div>📋 <strong>${mergeResult.addedLogsCount}</strong> novih zapisov v zgodovino premikov</div>
+          ${newNamesHtml}
+        `;
+        cancelBtn.textContent = 'Zapri';
+      }
+    } else {
+      radar.style.display = 'none';
+      summary.style.display = 'block';
+      title.textContent = 'BLE zahteva nameščen APK';
+      desc.textContent = 'Brezžična BLE povezava deluje na Android napravi (APK).';
+    }
+  } catch (err) {
+    console.warn('BLE Receive error:', err);
+    radar.style.display = 'none';
+    title.textContent = 'Iskanje prekinjeno';
+    desc.textContent = err.message || String(err);
+  }
+}
+
+function cancelBLESync() {
+  if (isCapacitorNative() && window.Capacitor?.Plugins?.BLESync) {
+    try {
+      window.Capacitor.Plugins.BLESync.cancel();
+    } catch (e) {}
+  }
+  const modal = document.getElementById('modalBLESync');
+  if (modal) modal.style.display = 'none';
+}
+
+async function checkNativeIncomingSync() {
+  if (isCapacitorNative() && window.Capacitor?.Plugins?.NativeFileSaver) {
+    try {
+      const res = await window.Capacitor.Plugins.NativeFileSaver.checkIncomingSync();
+      if (res && res.hasData && res.jsonData) {
+        const parsed = JSON.parse(res.jsonData);
+        if (parsed && Array.isArray(parsed.items)) {
+          showToast('Prejet nov paket zaloge! Usklajujem...');
+          const result = await DB.mergeSyncData(parsed);
+          await refreshInventory();
+          await refreshLogs();
+          playSuccessBeep();
+          showToast(`✅ Zaloga usklajena! Posodobljenih ${result.updatedCount} stanj.`);
+        }
+      }
+    } catch (e) {
+      console.warn('Napaka pri preverjanju dohodnega paketa:', e);
+    }
+  }
+}
+
+window.startBLESending = startBLESending;
+window.startBLEReceiving = startBLEReceiving;
+window.cancelBLESync = cancelBLESync;
 
 /* =========================================================================
    8. GENERIRANJE PDF IZPISOV ZARADI ČRTNIH KOD & ŠKATEL (100% OFFLINE)

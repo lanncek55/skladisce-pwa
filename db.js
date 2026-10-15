@@ -921,5 +921,119 @@ const DB = {
       };
       getReq.onerror = () => reject(getReq.error);
     });
+  },
+
+  /**
+   * Pametno združi prejeto sinhronizacijsko pošiljko (Quick Share / Nearby Share)
+   * - Samodejno doda vse nove artikle s policami in škatlami
+   * - Samodejno posodobi obstoječa stanja (vključno z vsemi izvedenimi izdajami)
+   * - Združi dnevnik premikov brez podvajanja
+   */
+  async mergeSyncData(syncPayload) {
+    if (!syncPayload || !Array.isArray(syncPayload.items)) {
+      throw new Error('Neveljavna datoteka za sinhronizacijo.');
+    }
+
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['items', 'logs'], 'readwrite');
+      const itemStore = tx.objectStore('items');
+      const logStore = tx.objectStore('logs');
+
+      const getItemsReq = itemStore.getAll();
+      const getLogsReq = logStore.getAll();
+
+      let existingItems = [];
+      let existingLogs = [];
+      let readyCount = 0;
+
+      const onReady = () => {
+        readyCount++;
+        if (readyCount < 2) return;
+
+        const itemMap = new Map();
+        existingItems.forEach(i => itemMap.set(String(i.sku).trim(), normalizeItemBoxes(i)));
+
+        let addedCount = 0;
+        let updatedCount = 0;
+        let decreasedCount = 0;
+        const addedItemNames = [];
+
+        for (const incoming of syncPayload.items) {
+          if (!incoming || !incoming.sku) continue;
+          const skuKey = String(incoming.sku).trim();
+          const normIncoming = normalizeItemBoxes(incoming);
+
+          if (!itemMap.has(skuKey)) {
+            // Popolnoma nov artikel!
+            delete normIncoming.id;
+            itemStore.add(normIncoming);
+            addedCount++;
+            addedItemNames.push(normIncoming.name || normIncoming.sku);
+          } else {
+            // Obstoječ artikel: posodobimo stanja na policah in škatlah
+            const localItem = itemMap.get(skuKey);
+            const oldQty = localItem.quantity;
+
+            localItem.name = normIncoming.name || localItem.name;
+            localItem.category = normIncoming.category || localItem.category;
+            localItem.boxTotal = normIncoming.boxTotal || localItem.boxTotal;
+            localItem.boxInfo = normIncoming.boxInfo || localItem.boxInfo;
+            localItem.unit = normIncoming.unit || localItem.unit;
+            localItem.notes = normIncoming.notes || localItem.notes;
+            localItem.location = normIncoming.location || localItem.location;
+            localItem.boxes = normIncoming.boxes;
+            localItem.quantity = normIncoming.quantity;
+            localItem.lastUpdated = normIncoming.lastUpdated || new Date().toISOString();
+
+            itemStore.put(localItem);
+            updatedCount++;
+            if (localItem.quantity < oldQty) {
+              decreasedCount++;
+            }
+          }
+        }
+
+        // Združitev zgodovine premikov (dnevnik)
+        const existingTimestamps = new Set(existingLogs.map(l => l.timestamp));
+        let addedLogsCount = 0;
+
+        if (Array.isArray(syncPayload.logs)) {
+          for (const incomingLog of syncPayload.logs) {
+            if (!incomingLog || !incomingLog.timestamp) continue;
+            if (!existingTimestamps.has(incomingLog.timestamp)) {
+              delete incomingLog.id;
+              logStore.add(incomingLog);
+              existingTimestamps.add(incomingLog.timestamp);
+              addedLogsCount++;
+            }
+          }
+        }
+
+        tx.oncomplete = () => {
+          resolve({
+            addedCount,
+            updatedCount,
+            decreasedCount,
+            addedLogsCount,
+            addedItemNames,
+            totalIncoming: syncPayload.items.length
+          });
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+
+      getItemsReq.onsuccess = () => {
+        existingItems = getItemsReq.result || [];
+        onReady();
+      };
+      getItemsReq.onerror = () => reject(getItemsReq.error);
+
+      getLogsReq.onsuccess = () => {
+        existingLogs = getLogsReq.result || [];
+        onReady();
+      };
+      getLogsReq.onerror = () => reject(getLogsReq.error);
+    });
   }
 };
