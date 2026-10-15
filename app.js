@@ -1501,8 +1501,8 @@ window.exportReceivingPDF = function() {
 
   const cleanFileTitle = stripSlo(session.name).replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeFilename = `Prevzem_${cleanFileTitle}_${new Date().toISOString().slice(0, 10)}.pdf`;
-  doc.save(safeFilename);
-  showToast(`📄 PDF porocilo prevzema "${safeFilename}" je uspesno preneseno.`);
+  downloadFile(doc.output('blob'), safeFilename, 'application/pdf');
+  showToast(`📄 PDF poročilo prevzema "${safeFilename}" je uspešno shranjeno.`);
 };
 
 /* =========================================================================
@@ -2293,7 +2293,7 @@ async function handleBoxScanResult(parsed) {
 let currentDispatchData = null;
 let currentDispatchItems = [];
 
-async function showReceiptDispatchPicker() {
+window.showReceiptDispatchPicker = async function showReceiptDispatchPicker() {
   if (DB.ensureReceiptDemoItems) {
     await DB.ensureReceiptDemoItems();
   }
@@ -3416,7 +3416,7 @@ async function applyAuditToInventory() {
   }
 }
 
-async function exportAuditPDF() {
+window.exportAuditPDF = async function exportAuditPDF() {
   try {
     showToast('Pripravljam PDF zapisnik inventure...');
     if (!auditSession.entries || auditSession.entries.length === 0) {
@@ -4100,7 +4100,7 @@ function generateBarcodeDataUrl(sku) {
   }
 }
 
-async function exportCompleteSetsPDF() {
+window.exportCompleteSetsPDF = async function exportCompleteSetsPDF() {
   try {
     showToast('Pripravljam PDF s popolnimi kompleti...');
     const allItems = await DB.getAllItems();
@@ -4110,11 +4110,6 @@ async function exportCompleteSetsPDF() {
       const stats = DB.getBoxStats(item);
       return stats.completeSets > 0;
     });
-
-    if (items.length === 0) {
-      showToast('Ni artiklov s popolnimi kompleti na zalogi.');
-      return;
-    }
 
     if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
       showToast('jsPDF knjižnica ni naložena.');
@@ -4177,6 +4172,31 @@ async function exportCompleteSetsPDF() {
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
       doc.text(`Skladisce PWA - Porocilo popolnih kompletov - Stran ${pageNo}`, margin, pageHeight - 8);
+    }
+
+    if (items.length === 0) {
+      drawHeader();
+      y += 8;
+      doc.setFillColor(254, 242, 242);
+      doc.rect(margin, y, contentWidth, 24, 'F');
+      doc.setDrawColor(239, 68, 68);
+      doc.rect(margin, y, contentWidth, 24, 'S');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(153, 27, 27);
+      doc.text('NI POPOLNIH KOMPLETOV NA ZALOGI', margin + 8, y + 10);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(185, 28, 28);
+      doc.text('Trenutno na zalogi v skladiscu ni nobenega artikla s popolnimi vsemi skatlami.', margin + 8, y + 18);
+      
+      drawFooter(currentPage);
+      const fileName = `skladisce-popolni-kompleti-${getDateStamp()}.pdf`;
+      await downloadFile(doc.output('blob'), fileName, 'application/pdf');
+      showToast('PDF s popolnimi kompleti uspesno shranjen!');
+      return;
     }
 
     drawHeader();
@@ -4290,7 +4310,7 @@ async function exportCompleteSetsPDF() {
   }
 }
 
-async function exportIncompleteSetsPDF() {
+window.exportIncompleteSetsPDF = async function exportIncompleteSetsPDF() {
   try {
     showToast('Pripravljam PDF z nepopolnimi škatlami...');
     const allItems = await DB.getAllItems();
@@ -4300,11 +4320,6 @@ async function exportIncompleteSetsPDF() {
       const stats = DB.getBoxStats(item);
       return stats.hasIncomplete;
     });
-
-    if (items.length === 0) {
-      showToast('Vsi artikli so popolni! Ni nepopolnih škatel na zalogi.');
-      return;
-    }
 
     if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
       showToast('jsPDF knjižnica ni naložena.');
@@ -4367,6 +4382,31 @@ async function exportIncompleteSetsPDF() {
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.text(`Skladisce PWA - Porocilo nepopolnih skatel - Stran ${pageNo}`, margin, pageHeight - 6);
+    }
+
+    if (items.length === 0) {
+      drawHeader();
+      y += 8;
+      doc.setFillColor(240, 253, 244);
+      doc.rect(margin, y, contentWidth, 24, 'F');
+      doc.setDrawColor(34, 197, 94);
+      doc.rect(margin, y, contentWidth, 24, 'S');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(22, 101, 52);
+      doc.text('VSE SKATLE SO POPOLNE - NI MANJKAJOCIH DELOV', margin + 8, y + 10);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(21, 128, 61);
+      doc.text('Vsi artikli na zalogi imajo usklajene vse sestavne dele skatel. Noben artikel nima primanjkljaja.', margin + 8, y + 18);
+      
+      drawFooter(currentPage);
+      const fileName = `skladisce-nepopolne-skatle-${getDateStamp()}.pdf`;
+      await downloadFile(doc.output('blob'), fileName, 'application/pdf');
+      showToast('PDF z nepopolnimi skatlami uspesno shranjen (ni primanjkljajev)!');
+      return;
     }
 
     drawHeader();

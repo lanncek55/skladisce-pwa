@@ -938,12 +938,14 @@ body {
 /* Hitri PDF izpisi */
 .pdf-quick-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 0 16px 10px 16px;
+  padding: 0 16px 12px 16px;
 }
 
 .btn-pdf-pill {
-  flex: 1;
+  flex: 1 1 calc(50% - 4px);
+  min-height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -952,10 +954,13 @@ body {
   border: 1px solid rgba(56, 189, 248, 0.35);
   color: var(--primary);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font-size: 0.8rem;
+  padding: 10px 12px;
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
   transition: all 0.2s ease;
 }
 

@@ -59,14 +59,15 @@
 
       <!-- Hitri PDF izpisi zaloge in pomoč pri izdaji -->
       <div class="pdf-quick-bar">
-        <button class="btn-pdf-pill" id="btnQuickPdfComplete" title="Prenesi PDF s popolnimi kompleti">
+        <button type="button" class="btn-pdf-pill" id="btnQuickPdfComplete" onclick="exportCompleteSetsPDF()" title="Prenesi PDF s popolnimi kompleti">
           <span>📄</span> PDF Popolni kompleti
         </button>
-        <button class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" title="Prenesi PDF z nepopolnimi škatlami">
+        <button type="button" class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" onclick="exportIncompleteSetsPDF()" title="Prenesi PDF z nepopolnimi škatlami">
           <span>⚠️</span> PDF Nepopolne škatle
         </button>
-        <button class="btn-pdf-pill" id="btnQuickDispatch" style="border-color: #f59e0b; color: #fbbf24;" title="Odpri pomoč pri izdaji blaga po računu">
-          <span>🧾</span> Pomoč pri izdaji (Račun)
+        <button type="button" class="btn-pdf-pill" id="btnQuickDispatch" onclick="showReceiptDispatchPicker()" style="border-color: #f59e0b; color: #fbbf24; flex: 1 1 100%;" title="Odpri pomoč pri izdaji blaga po računu">
+          <span>🧾</span> Pomoč pri izdaji (Račun kupca)
+        </button>
       </div>
 
       <!-- Prevzemna pošiljka (Prejemanje robe v teku) -->
@@ -739,7 +740,7 @@
 
       <!-- Gumbi za izvoz in zaključek -->
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border);">
-        <button type="button" class="btn-primary" id="btnExportReceivingPDF" style="margin: 0; background: linear-gradient(135deg, #38bdf8, #0284c7);">
+        <button type="button" class="btn-primary" id="btnExportReceivingPDF" onclick="exportReceivingPDF()" style="margin: 0; background: linear-gradient(135deg, #38bdf8, #0284c7);">
           📄 Prenesi PDF zapisnik prevzema
         </button>
         <div style="display: flex; gap: 8px;">
