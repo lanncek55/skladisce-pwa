@@ -381,6 +381,59 @@ const DB = {
     });
   },
 
+  /**
+   * Izdaja celotnega artikla (odšteje po 1 kos od vseh škatel pri večdelnih garniturah)
+   */
+  async issueCompleteItem(id, qty = 1, note = '') {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['items', 'logs'], 'readwrite');
+      const itemStore = tx.objectStore('items');
+      const logStore = tx.objectStore('logs');
+
+      const getReq = itemStore.get(Number(id));
+      getReq.onsuccess = () => {
+        let item = getReq.result;
+        if (!item) {
+          reject(new Error('Artikel ne obstaja.'));
+          return;
+        }
+
+        item = normalizeItemBoxes(item);
+        const boxTotal = Math.max(1, item.boxTotal || 1);
+        const issueQty = Math.max(1, Number(qty) || 1);
+
+        for (let b = 1; b <= boxTotal; b++) {
+          if (!item.boxes[b]) {
+            item.boxes[b] = { count: 0, location: item.location || 'Brez lokacije' };
+          }
+          const currentCount = Number(item.boxes[b].count) || 0;
+          item.boxes[b].count = Math.max(0, currentCount - issueQty);
+        }
+
+        const stats = DB.getBoxStats(item);
+        item.quantity = stats.completeSets;
+        item.lastUpdated = new Date().toISOString();
+
+        itemStore.put(item);
+
+        logStore.add({
+          itemId: item.id,
+          sku: item.sku,
+          itemName: item.name,
+          changeType: 'out',
+          changeAmount: -issueQty,
+          resultingQty: item.quantity,
+          note: (note || 'Izdaja artikla kupcu') + ` (-${issueQty}x komplet, preostalo kompletov: ${item.quantity})`,
+          timestamp: new Date().toISOString()
+        });
+
+        resolve(item);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  },
+
   async getAllLogs() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -538,6 +591,41 @@ const DB = {
         },
         piecesPerBox: 1,
         notes: '⚠️ 0 celih kompletov! Na zalogi 4x Box 1/2, manjka 4x Box 2/2'
+      },
+
+      // Artikli s skeniranega računa kupca (za takojšnji preizkus vodenja do regala)
+      {
+        sku: '3618930',
+        name: 'Predalnik LIMFJORDEN 4 predali bela',
+        category: 'Omarice & Mizice',
+        location: 'Regal P-04 / Regal P-05',
+        quantity: 6,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/2',
+        boxTotal: 2,
+        boxes: {
+          1: { count: 6, location: 'Regal P-04 (ogrodje & stranice)' },
+          2: { count: 6, location: 'Regal P-05 (predali & vodila)' }
+        },
+        piecesPerBox: 1,
+        notes: 'JYSK Predalnik LIMFJORDEN 4 predali (2 škatli)'
+      },
+      {
+        sku: '3670619',
+        name: 'DIVERSES',
+        category: 'Splošno',
+        location: 'Regal D-01',
+        quantity: 8,
+        minQuantity: 2,
+        unit: 'kos',
+        boxInfo: 'Box 1/1',
+        boxTotal: 1,
+        boxes: {
+          1: { count: 8, location: 'Regal D-01 (polica 2)' }
+        },
+        piecesPerBox: 1,
+        notes: 'Razna oprema DIVERSES'
       }
     ];
 
@@ -545,5 +633,53 @@ const DB = {
       await this.addItem(item);
     }
     return true;
+  },
+
+  /**
+   * Preveri in po potrebi zagotovi obstoj artiklov z računa, da se takoj prikažejo pravilni regali
+   */
+  async ensureReceiptDemoItems() {
+    const items = [
+      {
+        sku: '3618930',
+        name: 'Predalnik LIMFJORDEN 4 predali bela',
+        category: 'Omarice & Mizice',
+        location: 'Regal P-04 / Regal P-05',
+        quantity: 6,
+        minQuantity: 2,
+        unit: 'garnitura',
+        boxInfo: 'Box 1/2',
+        boxTotal: 2,
+        boxes: {
+          1: { count: 6, location: 'Regal P-04 (ogrodje & stranice)' },
+          2: { count: 6, location: 'Regal P-05 (predali & vodila)' }
+        },
+        piecesPerBox: 1,
+        notes: 'JYSK Predalnik LIMFJORDEN 4 predali (2 škatli)'
+      },
+      {
+        sku: '3670619',
+        name: 'DIVERSES',
+        category: 'Splošno',
+        location: 'Regal D-01',
+        quantity: 8,
+        minQuantity: 2,
+        unit: 'kos',
+        boxInfo: 'Box 1/1',
+        boxTotal: 1,
+        boxes: {
+          1: { count: 8, location: 'Regal D-01 (polica 2)' }
+        },
+        piecesPerBox: 1,
+        notes: 'Razna oprema DIVERSES'
+      }
+    ];
+
+    for (const it of items) {
+      const existing = await this.getItemBySKU(it.sku);
+      if (!existing) {
+        await this.addItem(it);
+      }
+    }
   }
 };

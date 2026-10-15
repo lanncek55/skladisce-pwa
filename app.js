@@ -876,9 +876,58 @@ function setupBoxOCRScanner() {
     }
   });
 
-  manualInput.addEventListener('keydown', (e) => {
+    manualInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') btnManual.click();
   });
+
+  // Gumbi za pomoč pri izdaji po računu
+  const btnReceiptTrigger = document.getElementById('btnReceiptDispatchTrigger');
+  if (btnReceiptTrigger) {
+    btnReceiptTrigger.addEventListener('click', showReceiptDispatchPicker);
+  }
+
+  const btnQuickDispatch = document.getElementById('btnQuickDispatch');
+  if (btnQuickDispatch) {
+    btnQuickDispatch.addEventListener('click', showReceiptDispatchPicker);
+  }
+
+  const btnCloseDispatch = document.getElementById('btnCloseReceiptDispatch');
+  if (btnCloseDispatch) {
+    btnCloseDispatch.addEventListener('click', closeReceiptDispatchModal);
+  }
+
+  const btnCancelDispatch = document.getElementById('btnCancelDispatch');
+  if (btnCancelDispatch) {
+    btnCancelDispatch.addEventListener('click', closeReceiptDispatchModal);
+  }
+
+  const btnFinishDispatch = document.getElementById('btnFinishDispatch');
+  if (btnFinishDispatch) {
+    btnFinishDispatch.addEventListener('click', finishReceiptDispatch);
+  }
+
+  const receiptFileInput = document.getElementById('receiptFileInput');
+  if (receiptFileInput) {
+    receiptFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const scale = Math.min(1, 1400 / img.width);
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        preprocessAndCheckContrast(canvas, ctx);
+
+        await processImageWithOCR(canvas);
+      };
+      img.src = URL.createObjectURL(file);
+      receiptFileInput.value = '';
+    });
+  }
 }
 
 /**
@@ -1160,13 +1209,13 @@ async function processImageWithOCR(canvas) {
         if (res && res.text) {
           parsed = WarehouseLabelParser.parse(res.text);
         }
-        if (!parsed || !parsed.articleNumber) {
+        if (!parsed || (!parsed.articleNumber && !parsed.isReceipt)) {
           const rot180 = rotateCanvas(canvas, 180);
           const base64_180 = rot180.toDataURL('image/jpeg', 0.90);
           const res180 = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64: base64_180 });
           if (res180 && res180.text) {
             const p180 = WarehouseLabelParser.parse(res180.text);
-            if (p180 && p180.articleNumber) {
+            if (p180 && (p180.articleNumber || p180.isReceipt)) {
               parsed = p180;
             }
           }
@@ -1183,7 +1232,7 @@ async function processImageWithOCR(canvas) {
         if (blocks && blocks.length > 0) {
           const fullText = blocks.map(b => b.rawValue).join('\n');
           const p = WarehouseLabelParser.parse(fullText);
-          if (p && p.articleNumber) {
+          if (p && (p.articleNumber || p.isReceipt)) {
             parsed = p;
           }
         }
@@ -1206,13 +1255,13 @@ async function processImageWithOCR(canvas) {
       const ret = await worker.recognize(canvas, {}, { text: true, blocks: false, hocr: false, tsv: false });
       parsed = WarehouseLabelParser.parse(ret.data.text || '');
 
-      // Če ne najde šifre na 0°, preveri še 180°
-      if (!parsed.articleNumber) {
+      // Če ne najde šifre ali računa na 0°, preveri še 180°
+      if (!parsed.articleNumber && !parsed.isReceipt) {
         loadingText.textContent = '🔄 Preverjam obrnjeno škatlo (180°)...';
         const rotated180 = rotateCanvas(canvas, 180);
         const ret180 = await worker.recognize(rotated180, {}, { text: true, blocks: false, hocr: false, tsv: false });
         const parsed180 = WarehouseLabelParser.parse(ret180.data.text || '');
-        if (parsed180.articleNumber) {
+        if (parsed180.articleNumber || parsed180.isReceipt) {
           parsed = parsed180;
         }
       }
@@ -1239,6 +1288,12 @@ async function processImageWithOCR(canvas) {
 async function handleBoxScanResult(parsed) {
   if (navigator.vibrate) navigator.vibrate([70, 40, 70]);
 
+  // 1. Če je prepoznan račun kupca, zaženi asistenta za vodenje po regalih
+  if (parsed && parsed.isReceipt) {
+    await openReceiptDispatchModal(parsed);
+    return;
+  }
+
   currentScannedBox = parsed;
   currentMultiplier = 1;
 
@@ -1252,6 +1307,324 @@ async function handleBoxScanResult(parsed) {
   }
 
   renderBoxResultCard(existingItem);
+}
+
+/* =========================================================================
+   POMOČ PRI IZDAJI BLAGA PO RAČUNU (VODENJE PO REGALIH)
+   ========================================================================= */
+
+let currentDispatchData = null;
+let currentDispatchItems = [];
+
+async function showReceiptDispatchPicker() {
+  if (DB.ensureReceiptDemoItems) {
+    await DB.ensureReceiptDemoItems();
+  }
+
+  const sampleReceiptData = {
+    isReceipt: true,
+    receiptNo: '0519-101-264866',
+    receiptDate: '09.10.26 11:04',
+    barcode: '00105190910261010370',
+    items: [
+      { sku: '3618930', name: 'Predalnik LIMFJORDEN 4 predali bela', qty: 1, price: '95.00' },
+      { sku: '3670619', name: 'DIVERSES', qty: 1, price: '315.00' }
+    ]
+  };
+
+  if (isCapacitorNative()) {
+    const choice = confirm("Želite poskenirati račun kupca s kamero?\n\n[V redu (OK)] = Slikaj račun s kamero\n[Prekliči (Cancel)] = Naloži sliko iz galerije ali uporabi vzorčni račun");
+    if (choice) {
+      await triggerNativeMLKitScan();
+    } else {
+      const useSample = confirm("Želite odpreti vzorčni račun JYSK (LIMFJORDEN + DIVERSES)?\n\n[V redu (OK)] = Odpri vzorčni račun\n[Prekliči (Cancel)] = Odpri galerijo slik");
+      if (useSample) {
+        await openReceiptDispatchModal(sampleReceiptData);
+      } else {
+        await triggerNativeMLKitGallery();
+      }
+    }
+  } else {
+    const useSample = confirm("Odprem pomoč pri izdaji z vzorčnim računom JYSK (Predalnik LIMFJORDEN + DIVERSES)?\n\n[V redu (OK)] = Takojšnji preizkus z vzorčnim računom\n[Prekliči (Cancel)] = Naloži svojo sliko računa");
+    if (useSample) {
+      await openReceiptDispatchModal(sampleReceiptData);
+    } else {
+      const fi = document.getElementById('receiptFileInput') || document.getElementById('ocrFileInput');
+      if (fi) fi.click();
+    }
+  }
+}
+
+async function openReceiptDispatchModal(receiptData) {
+  if (DB.ensureReceiptDemoItems) {
+    await DB.ensureReceiptDemoItems();
+  }
+
+  currentDispatchData = receiptData;
+  const modal = document.getElementById('modalReceiptDispatch');
+  if (!modal) return;
+
+  const receiptNoEl = document.getElementById('dispatchReceiptNo');
+  const receiptDateEl = document.getElementById('dispatchReceiptDate');
+  const barcodeRow = document.getElementById('dispatchBarcodeRow');
+  const barcodeEl = document.getElementById('dispatchReceiptBarcode');
+
+  if (receiptNoEl) receiptNoEl.textContent = receiptData.receiptNo || 'Račun kupca';
+  if (receiptDateEl) receiptDateEl.textContent = receiptData.receiptDate || new Date().toLocaleDateString('sl-SI');
+  if (barcodeRow && barcodeEl) {
+    if (receiptData.barcode) {
+      barcodeRow.style.display = 'block';
+      barcodeEl.textContent = receiptData.barcode;
+    } else {
+      barcodeRow.style.display = 'none';
+    }
+  }
+
+  currentDispatchItems = [];
+  const rawItems = receiptData.items || [];
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const rawIt = rawItems[i];
+    const dbItem = await DB.getItemBySKU(rawIt.sku);
+    currentDispatchItems.push({
+      index: i,
+      sku: rawIt.sku,
+      name: (dbItem && dbItem.name) ? dbItem.name : rawIt.name,
+      orderedQty: Number(rawIt.qty) || 1,
+      price: rawIt.price || '',
+      dbItem: dbItem,
+      isPicked: false
+    });
+  }
+
+  renderDispatchRouteList();
+  updateDispatchProgress();
+
+  modal.classList.add('active');
+  modal.style.display = 'flex';
+  playSuccessBeep();
+}
+
+function renderDispatchRouteList() {
+  const container = document.getElementById('dispatchRouteBody');
+  if (!container) return;
+
+  if (currentDispatchItems.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+        Na računu ni bilo zaznanih artiklov za izdajo.
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+
+  currentDispatchItems.forEach((item, idx) => {
+    const dbIt = item.dbItem;
+    const isPicked = item.isPicked;
+
+    let shelfBadges = '';
+    let multiBoxSection = '';
+    let stockSummary = '';
+
+    if (dbIt) {
+      const stats = DB.getBoxStats(dbIt);
+      const boxTotal = stats.boxTotal;
+
+      if (boxTotal > 1) {
+        const shelves = stats.breakdown.map(b => b.location).filter(Boolean);
+        const uniqueShelves = [...new Set(shelves)];
+        shelfBadges = uniqueShelves.map(s => `
+          <div class="dispatch-shelf-pill highlight">
+            <span>📍</span> <span>${escapeHtml(s)}</span>
+          </div>
+        `).join(' ');
+
+        multiBoxSection = `
+          <div class="dispatch-multibox-box">
+            <div style="font-size: 0.78rem; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
+              <span>⚠️ POZOR: Artikel sestavljata ${boxTotal} škatli! Poberi obe škatli:</span>
+            </div>
+            ${stats.breakdown.map(b => `
+              <div class="dispatch-box-row">
+                <div class="dispatch-box-name">
+                  <span>📦</span> Škatla ${b.boxNum}/${boxTotal}
+                </div>
+                <div class="dispatch-box-shelf">
+                  📍 ${escapeHtml(b.location)}
+                </div>
+                <div class="dispatch-box-stock">
+                  (Zaloga: <strong>${b.count}</strong> kos)
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+
+        stockSummary = `
+          <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items:center;">
+            <span>Celotnih kompletov na zalogi:</span>
+            <strong style="color: ${stats.completeSets >= item.orderedQty ? 'var(--success)' : 'var(--warning)'}; font-size: 0.95rem;">
+              ${stats.completeSets} garnitur
+            </strong>
+          </div>
+        `;
+      } else {
+        const loc = dbIt.location || 'Regal D-01';
+        shelfBadges = `
+          <div class="dispatch-shelf-pill highlight">
+            <span>📍</span> <span>${escapeHtml(loc)}</span>
+          </div>
+        `;
+
+        stockSummary = `
+          <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items:center;">
+            <span>Zaloga na regalu:</span>
+            <strong style="color: ${dbIt.quantity >= item.orderedQty ? 'var(--success)' : 'var(--warning)'}; font-size: 0.95rem;">
+              ${dbIt.quantity} ${dbIt.unit || 'kos'}
+            </strong>
+          </div>
+        `;
+      }
+    } else {
+      shelfBadges = `
+        <div class="dispatch-shelf-pill" style="border-color: #ef4444; color: #f87171; background: rgba(239, 68, 68, 0.15);">
+          <span>📍</span> <span>REGAL NEZNAN (Ni v evidenci)</span>
+        </div>
+      `;
+
+      stockSummary = `
+        <div style="font-size: 0.8rem; color: var(--warning); background: rgba(245, 158, 11, 0.1); padding: 6px 10px; border-radius: var(--radius-sm);">
+          ⚠️ Artikel še ni v sistemu zalog skladišča.
+        </div>
+      `;
+    }
+
+    const cardClass = isPicked ? 'dispatch-card picked-step' : (idx === 0 || currentDispatchItems[idx - 1]?.isPicked ? 'dispatch-card active-step' : 'dispatch-card');
+    const badgeStatus = isPicked 
+      ? '<span class="dispatch-step-badge done">✅ PREVZETO</span>'
+      : '<span class="dispatch-step-badge pending">⏳ ČAKA PREVZEM</span>';
+
+    html += `
+      <div class="${cardClass}" id="dispatchCard_${idx}">
+        <div class="dispatch-card-top">
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+            ${shelfBadges}
+          </div>
+          <div>${badgeStatus}</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 3px;">
+          <div class="dispatch-item-title">${escapeHtml(item.name)}</div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span class="dispatch-sku-pill">Šifra: ${escapeHtml(item.sku)}</span>
+            <span style="font-size: 0.82rem; color: var(--text-muted);">Naročeno: <strong style="color: #fff;">${item.orderedQty}x</strong></span>
+            ${item.price ? `<span style="font-size: 0.8rem; color: var(--primary);">(${item.price} €)</span>` : ''}
+          </div>
+        </div>
+
+        ${multiBoxSection}
+        ${stockSummary}
+
+        <div style="margin-top: 4px;">
+          ${isPicked ? `
+            <button type="button" class="btn-pick-confirm" disabled style="background: rgba(16, 185, 129, 0.2); color: #10b981; border-color: rgba(16, 185, 129, 0.4); cursor: default;">
+              ✓ Uspešno pobrano iz regala
+            </button>
+          ` : `
+            <button type="button" class="btn-pick-confirm" onclick="confirmDispatchPick(${idx})">
+              👉 Vzemi ${item.orderedQty}x in potrdi prevzem
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+window.confirmDispatchPick = async function(index) {
+  const item = currentDispatchItems[index];
+  if (!item || item.isPicked) return;
+
+  const receiptNo = currentDispatchData?.receiptNo || 'račun';
+  const note = `Izdaja po računu ${receiptNo}`;
+
+  try {
+    if (item.dbItem) {
+      if (item.dbItem.boxTotal > 1) {
+        await DB.issueCompleteItem(item.dbItem.id, item.orderedQty, note);
+      } else {
+        await DB.adjustStock(item.dbItem.id, -item.orderedQty, note, 'out');
+      }
+      item.dbItem = await DB.getItemById(item.dbItem.id);
+    }
+
+    item.isPicked = true;
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    playSuccessBeep();
+    showToast(`✅ Prevzeto: ${item.name}`);
+
+    renderDispatchRouteList();
+    updateDispatchProgress();
+
+    const nextIdx = currentDispatchItems.findIndex(it => !it.isPicked);
+    if (nextIdx !== -1) {
+      const nextEl = document.getElementById(`dispatchCard_${nextIdx}`);
+      if (nextEl) {
+        nextEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  } catch (err) {
+    console.error('Napaka pri potrditvi prevzema:', err);
+    showToast('Napaka pri posodobitvi zaloge: ' + err.message);
+  }
+};
+
+function updateDispatchProgress() {
+  const total = currentDispatchItems.length;
+  const picked = currentDispatchItems.filter(it => it.isPicked).length;
+  const percent = total > 0 ? Math.round((picked / total) * 100) : 0;
+
+  const countEl = document.getElementById('dispatchProgressCount');
+  const percentEl = document.getElementById('dispatchProgressPercent');
+  const barEl = document.getElementById('dispatchProgressBar');
+  const btnFinish = document.getElementById('btnFinishDispatch');
+
+  if (countEl) countEl.textContent = `Prevzeto ${picked} / ${total} artiklov`;
+  if (percentEl) percentEl.textContent = `${percent}%`;
+  if (barEl) barEl.style.width = `${percent}%`;
+
+  if (btnFinish) {
+    if (picked === total && total > 0) {
+      btnFinish.disabled = false;
+      btnFinish.innerHTML = '🎉 Vse pobrano &mdash; Zaključi izdajo';
+    } else {
+      btnFinish.disabled = (picked === 0);
+      btnFinish.innerHTML = `Zaključi delno izdajo (${picked}/${total})`;
+    }
+  }
+}
+
+window.closeReceiptDispatchModal = function() {
+  const modal = document.getElementById('modalReceiptDispatch');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+};
+
+async function finishReceiptDispatch() {
+  closeReceiptDispatchModal();
+
+  const receiptNo = currentDispatchData?.receiptNo || '';
+  showToast(`🎉 Izdaja po računu ${receiptNo} je uspešno zaključena!`);
+  playSuccessBeep();
+
+  await refreshInventory();
+  await loadLogs();
 }
 
 window.closeBoxResultCard = function() {

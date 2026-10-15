@@ -4,9 +4,87 @@
 
 const WarehouseLabelParser = {
   /**
+   * Zazna in razčleni trgovski račun (npr. JYSK račun z več artikli)
+   * @param {string} rawText
+   * @returns {Object|null}
+   */
+  parseReceipt(rawText) {
+    if (!rawText || typeof rawText !== 'string') return null;
+    const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const receiptKeywords = /racun|ra[cč]un|st\.?\s*ra[cč]|št\.?\s*ra[cč]|blagajn|skupaj|ddv|tovarni[sš]ka|bre[zž]ice|celov[sš]ka|prevzem|eft|trgovina\s*d\.?o\.?o/i;
+    const hasKeyword = receiptKeywords.test(rawText);
+
+    const receiptNoMatch = rawText.match(/(?:št\.?|st\.?)\s*ra[cč](?:un)?(?:\/storno)?[\s.:]*([0-9a-zA-Z\-]+)/i);
+    const receiptNo = receiptNoMatch ? receiptNoMatch[1] : '';
+
+    const dateMatch = rawText.match(/datum[\s.:]*([0-9\.\/]+(?:\s+[0-9:]+)?)/i);
+    const receiptDate = dateMatch ? dateMatch[1] : '';
+
+    const barcodeMatch = rawText.match(/\b([0-9]{16,24})\b/);
+    const barcode = barcodeMatch ? barcodeMatch[1] : '';
+
+    const itemsMap = new Map();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      const artMatch = line.match(/(?:artikel|art\.?|šifra|sifra|koda)?[\s.:]*\b([0-9]{7})\b/i);
+      const hasArtWord = /(?:artikel|art\.?|šifra|sifra|koda)/i.test(line);
+      const priceMatch = line.match(/([0-9]+[.,][0-9]{2})\s*(?:€|e|eur)?/i);
+
+      if (artMatch && (hasArtWord || (priceMatch && hasKeyword))) {
+        const sku = artMatch[1];
+
+        let name = '';
+        if (i > 0) {
+          const prev = lines[i - 1];
+          if (!receiptKeywords.test(prev) && !prev.match(/artikel|cena|popust|koda|količina/i) && prev.length > 2) {
+            name = prev;
+          }
+        }
+        if (!name) {
+          const cleanedLine = line.replace(/(?:artikel|art\.?|šifra|sifra|koda)/gi, '').replace(sku, '').replace(/[0-9]+[.,][0-9]{2}\s*(?:€|e|eur)?/gi, '').trim();
+          if (cleanedLine.length > 3) name = cleanedLine;
+        }
+        if (!name) name = 'Artikel ' + sku;
+
+        let qty = 1;
+        const qtyMatch = line.match(/([0-9]+)\s*(?:x|kom|kos|pcs)\b/i);
+        if (qtyMatch) {
+          qty = parseInt(qtyMatch[1], 10) || 1;
+        }
+
+        const price = priceMatch ? priceMatch[1] : '';
+
+        if (itemsMap.has(sku)) {
+          const existing = itemsMap.get(sku);
+          existing.qty += qty;
+        } else {
+          itemsMap.set(sku, { sku, name, qty, price });
+        }
+      }
+    }
+
+    const items = Array.from(itemsMap.values());
+    const isReceipt = (hasKeyword && items.length > 0) || items.length >= 2;
+
+    if (!isReceipt) return null;
+
+    return {
+      isReceipt: true,
+      receiptNo: receiptNo || (barcode ? barcode.substring(0, 10) : 'RAČUN-' + Date.now().toString().slice(-4)),
+      receiptDate: receiptDate || new Date().toLocaleDateString('sl-SI'),
+      barcode: barcode,
+      items: items,
+      rawText: rawText
+    };
+  },
+
+  /**
    * Glavna funkcija za analizo surovega OCR besedila
-   * @param {string} rawText - Besedilo prebrano s škatle
-   * @returns {Object} Rezultat z artiklom, škatlo in količino
+   * @param {string} rawText - Besedilo prebrano s škatle ali računa
+   * @returns {Object} Rezultat z artiklom, škatlo in količino ALI razčlenjen račun
    */
   parse(rawText) {
     if (!rawText || typeof rawText !== 'string') {
@@ -18,6 +96,12 @@ const WarehouseLabelParser = {
         quantityInBox: 1,
         rawText: ''
       };
+    }
+
+    // 0. Preveri ali gre za trgovski račun kupca
+    const receiptData = this.parseReceipt(rawText);
+    if (receiptData && receiptData.isReceipt) {
+      return receiptData;
     }
 
     const lines = rawText

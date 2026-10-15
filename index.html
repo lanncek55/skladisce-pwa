@@ -52,13 +52,16 @@
         </div>
       </div>
 
-      <!-- Hitri PDF izpisi zaloge -->
+      <!-- Hitri PDF izpisi zaloge in pomoč pri izdaji -->
       <div class="pdf-quick-bar">
         <button class="btn-pdf-pill" id="btnQuickPdfComplete" title="Prenesi PDF s popolnimi kompleti">
           <span>📄</span> PDF Popolni kompleti
         </button>
         <button class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" title="Prenesi PDF z nepopolnimi škatlami">
           <span>⚠️</span> PDF Nepopolne škatle
+        </button>
+        <button class="btn-pdf-pill" id="btnQuickDispatch" style="border-color: #f59e0b; color: #fbbf24;" title="Odpri pomoč pri izdaji blaga po računu">
+          <span>🧾</span> Pomoč pri izdaji (Račun)
         </button>
       </div>
 
@@ -139,10 +142,12 @@
           <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin-top:0; flex: 1;">
             🖼️ Izberi sliko iz galerije
           </button>
-          <button class="btn-secondary" id="btnToggleCamera" style="margin-top:0; width: auto; padding: 0 14px;" title="Vklopi / Izklopi kamero">
-            🔄
-          </button>
         </div>
+
+        <!-- Gumb za pomoč pri izdaji po računu -->
+        <button class="btn-primary" id="btnReceiptDispatchTrigger" style="margin-top: 4px; background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; color: #fff; font-weight: 700; font-size: 0.95rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);">
+          <span>🧾</span> POMOČ PRI IZDAJI (SKENIRAJ RAČUN KUPCA)
+        </button>
       </div>
 
       <!-- Kartica z rezultatom prepoznane škatle -->
@@ -383,6 +388,59 @@
       </form>
     </div>
   </div>
+
+  <!-- MODAL: POMOČ PRI IZDAJI BLAGA (PO RAČUNU) -->
+  <div class="modal-backdrop" id="modalReceiptDispatch">
+    <div class="modal-dialog modal-lg" style="max-height: 92vh; display: flex; flex-direction: column;">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+        <div>
+          <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--primary); font-weight: 800; letter-spacing: 0.5px;">
+            Vodenje po skladišču &bull; Izdaja kupcu
+          </div>
+          <h3 class="modal-title" id="dispatchReceiptTitle" style="display: flex; align-items: center; gap: 8px; font-size: 1.18rem; margin-top: 2px;">
+            🧾 Pomoč pri izdaji blaga
+          </h3>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseReceiptDispatch">&times;</button>
+      </div>
+
+      <!-- Informacije o računu in napredek prevzema -->
+      <div class="dispatch-header-info">
+        <div class="dispatch-meta-grid">
+          <div><span class="meta-label">Št. računa:</span> <strong id="dispatchReceiptNo">0519-101-264866</strong></div>
+          <div><span class="meta-label">Datum:</span> <span id="dispatchReceiptDate">09.10.2026</span></div>
+          <div id="dispatchBarcodeRow" style="grid-column: 1 / -1; font-size: 0.76rem; color: var(--text-muted); display: none;">
+            Črtna koda računa: <code id="dispatchReceiptBarcode"></code>
+          </div>
+        </div>
+
+        <div class="dispatch-progress-container">
+          <div class="dispatch-progress-header">
+            <span id="dispatchProgressCount">Prevzeto 0 / 0 artiklov</span>
+            <span id="dispatchProgressPercent">0%</span>
+          </div>
+          <div class="dispatch-progress-bar-bg">
+            <div class="dispatch-progress-bar-fill" id="dispatchProgressBar" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vodič po regalih (Seznam postaj / regalov) -->
+      <div class="dispatch-route-body" id="dispatchRouteBody">
+        <!-- Dinamično generirane postaje z regali -->
+      </div>
+
+      <!-- Noga z zaključkom -->
+      <div class="modal-footer" style="padding-top: 10px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: space-between; margin-top: 6px;">
+        <button type="button" class="btn-secondary" id="btnCancelDispatch" style="margin: 0; width: auto; padding: 10px 16px;">Zapri</button>
+        <button type="button" class="btn-primary" id="btnFinishDispatch" style="margin: 0; flex: 1; background: linear-gradient(135deg, #10b981, #059669); border-color: #10b981;" disabled>
+          🎉 Vse pobrano &mdash; Zaključi izdajo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="receiptFileInput" accept="image/*" style="display: none;">
 
   <script src="jspdf.umd.min.js"></script>
   <script src="jsbarcode.all.min.js"></script>
