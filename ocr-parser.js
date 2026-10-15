@@ -75,7 +75,7 @@ const WarehouseLabelParser = {
     // 2. ISKANJE IMENA ARTIKLA
     // Vgrajen katalog znanih skladiščnih artiklov (iz etiket) kot takojšnja referenca
     const knownCatalog = {
-      '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 3, box: 'Box 1/1' },
+      '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 1, box: 'Box 1/1' },
       '3725150': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
       '3759803': { name: 'Stacking chair LARVIK grey', pieces: 24, box: 'Box 1/1' },
       '4334604': { name: 'ULVIK 50x70 cm', pieces: 12, box: 'Box 1/1' },
@@ -168,31 +168,20 @@ const WarehouseLabelParser = {
       }
     }
 
-    // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size / pcs)
-    // Primeri:
-    // "Quantity: 12 pcs" -> 12
-    // "Quantity: 8 pcs." -> 8
-    // "Quantity: 4 pcs" -> 4
-    // "Quantity: 3 pcs" -> 3
-    // "Quantity: 1" -> 1
-    // "Colli Size 24" -> 24
-    // "Mirror SANDAGER 3 pcs/pk oak" -> 3 pcs
+    // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size)
+    // POMEMBNO: "3 pcs/pk" v imenu (npr. Mirror SANDAGER 3 pcs/pk) pomeni komplet 3 kosov v 1 paketu,
+    // zato se šteje kot 1 prodajni artikel (1 kos)!
+    // Več kosov se šteje le, če ima škatla izrecno oznako: "Quantity: 4 pcs" ali "Colli Size 24".
     for (const line of lines) {
-      // "Quantity: 12 pcs" ali "Quantity: 1"
+      // Izrecna oznaka npr. "Quantity: 4 pcs", "Quantity: 12 pcs", "Colli Size 24", "Quantity: 1"
       const qtyLabelMatch = line.match(/(?:quantity|colli\s*size)[\s.:]*([0-9]+)\s*(?:pcs\.?)?/i);
       if (qtyLabelMatch) {
         quantityInBox = parseInt(qtyLabelMatch[1], 10);
         break;
       }
-      // "3 pcs/pk" ali "4 pcs"
-      const pcsMatch = line.match(/\b([0-9]+)\s*(?:pcs\/pk|pcs\b)/i);
-      if (pcsMatch) {
-        quantityInBox = parseInt(pcsMatch[1], 10);
-        break;
-      }
     }
 
-    // Če količina ni bila specificirana, je privzeta 1 kos
+    // Če ni izrecne oznake Quantity:, je privzeto 1 kos na škatlo
     if (quantityInBox === null || isNaN(quantityInBox) || quantityInBox <= 0) {
       quantityInBox = 1;
     }

@@ -735,7 +735,10 @@ function renderBoxResultCard(existingItem) {
 
     <div class="box-badges">
       <span class="box-badge highlight">📦 ${escapeHtml(boxInfo)}</span>
-      <span class="box-badge highlight">🔢 ${piecesPerBox} kos v škatli</span>
+      <div class="box-badge highlight" style="display:inline-flex; align-items:center; gap: 6px;">
+        <span>🔢 Kosov v škatli:</span>
+        <input type="number" id="boxPiecesPerBoxInput" min="1" value="${piecesPerBox}" style="width: 50px; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 800; text-align: center; border-radius: 6px; padding: 2px 4px; font-size: 0.9rem;" oninput="updatePiecesPerBox(this.value)">
+      </div>
     </div>
 
     ${stockInfoHtml}
@@ -751,10 +754,10 @@ function renderBoxResultCard(existingItem) {
 
     <!-- Hitra skladiščna dejanja za prevzem in izdajo -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
-      <button class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px;">
+      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px;">
         📥 PREVZEMI (+${totalPcs} kos)
       </button>
-      <button class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px;">
+      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px;">
         📤 IZDAJ (-${totalPcs} kos)
       </button>
     </div>
@@ -767,8 +770,22 @@ function renderBoxResultCard(existingItem) {
   `;
 }
 
+window.updatePiecesPerBox = function(val) {
+  const num = Math.max(1, parseInt(val, 10) || 1);
+  if (currentScannedBox) {
+    currentScannedBox.quantityInBox = num;
+  }
+  const totalPcs = num * currentMultiplier;
+  const inBtn = document.getElementById('btnConfirmReceiveBox');
+  const outBtn = document.getElementById('btnConfirmIssueBox');
+  if (inBtn) inBtn.textContent = `📥 PREVZEMI (+${totalPcs} kos)`;
+  if (outBtn) outBtn.textContent = `📤 IZDAJ (-${totalPcs} kos)`;
+};
+
 window.setBoxMultiplier = function(m) {
   currentMultiplier = Number(m) || 1;
+  const pieces = Number(document.getElementById('boxPiecesPerBoxInput')?.value) || Number(currentScannedBox?.quantityInBox) || 1;
+  if (currentScannedBox) currentScannedBox.quantityInBox = pieces;
   const sku = currentScannedBox?.articleNumber;
   if (sku) {
     DB.getItemBySKU(sku).then(item => renderBoxResultCard(item));
@@ -781,7 +798,7 @@ window.executeBoxStockChange = async function(direction) {
   if (!currentScannedBox) return;
 
   const sku = currentScannedBox.articleNumber;
-  const piecesPerBox = Number(currentScannedBox.quantityInBox) || 1;
+  const piecesPerBox = Number(document.getElementById('boxPiecesPerBoxInput')?.value) || Number(currentScannedBox.quantityInBox) || 1;
   const totalAmount = piecesPerBox * currentMultiplier;
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
 
