@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Mobilna offline aplikacija za vodenje skladiščne zaloge">
+  <title>Skladišče - Upravljanje z zalogo</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Toast Obvestilo -->
+  <div id="toast" class="toast-msg">Obvestilo</div>
+
+  <!-- Glava Aplikacije -->
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-icon">📦</div>
+      <div class="app-title">Skladišče</div>
+    </div>
+    <div id="connectionStatus" class="offline-pill online">
+      <span class="dot"></span>
+      <span id="connectionText">Povezano</span>
+    </div>
+  </header>
+
+  <!-- Glavni vsebinski deli (Tabs) -->
+  <main id="mainContainer">
+
+    <!-- ZAVIHEK 1: ZALOGA -->
+    <section id="tab-inventory" class="tab-content active">
+      <!-- Hitra statistika -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Artiklov</div>
+          <div class="stat-val" id="statTotalItems">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Skupaj kos</div>
+          <div class="stat-val" id="statTotalQty">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Kritično</div>
+          <div class="stat-val critical" id="statLowStock">0</div>
+        </div>
+      </div>
+
+      <!-- Iskalnik in filtri -->
+      <div class="search-container">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="searchInput" class="search-input" placeholder="Išči artikel, kodo ali lokacijo...">
+        </div>
+        <div class="filter-chips" id="categoryChips">
+          <button class="chip active" data-filter="all">Vse</button>
+          <button class="chip" data-filter="low">⚠️ Nizka zaloga</button>
+        </div>
+      </div>
+
+      <!-- Seznam artiklov -->
+      <div class="items-list" id="itemsList">
+        <div class="empty-box">
+          <div class="empty-icon">📦</div>
+          <p>Nalaganje zaloge...</p>
+        </div>
+      </div>
+
+      <!-- Gumb za dodajanje artikla (+) -->
+      <button class="fab" id="btnOpenAddModal" title="Dodaj nov artikel">+</button>
+    </section>
+
+    <!-- ZAVIHEK 2: ČITALNIK ČRTNIH KOD -->
+    <section id="tab-scanner" class="tab-content scanner-section">
+      <h2 style="font-size: 1.1rem; margin-bottom: 8px;">Skeniranje črtne kode</h2>
+      <div class="camera-preview-container">
+        <video id="cameraVideo" playsinline autoplay muted></video>
+        <div class="scanner-overlay">
+          <div class="scan-frame">
+            <div class="scan-laser"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scanner-status" id="scannerStatus">
+        Kamera je pripravljena za branje črtnih kod...
+      </div>
+
+      <div style="width: 100%; max-width: 420px; display: flex; gap: 8px;">
+        <button class="btn-secondary" id="btnToggleCamera" style="margin-top:0;">Vklopi / Izklopi kamero</button>
+      </div>
+
+      <!-- Ročni vnos kode za primer ko kamera ni na voljo -->
+      <div style="width: 100%; max-width: 420px; background: var(--bg-card); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-top: 10px;">
+        <label class="form-label">Ročni vnos / preverjanje kode:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="manualScanInput" class="form-control" placeholder="Vpiši kodo ali SKU...">
+          <button class="btn-primary" id="btnManualScan" style="margin-top: 0; width: auto; padding: 0 16px;">Najdi</button>
+        </div>
+      </div>
+
+      <!-- Rezultat skeniranja -->
+      <div id="scanResultCard" style="display: none; width: 100%; max-width: 420px;" class="item-card">
+        <!-- Tukaj se dinamično prikaže najden artikel -->
+      </div>
+    </section>
+
+    <!-- ZAVIHEK 3: DNEVNIK PREMIKOV -->
+    <section id="tab-history" class="tab-content" style="display: none; padding: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h2 style="font-size: 1.1rem;">Zgodovina premikov</h2>
+        <button class="chip" id="btnClearLogs">Počisti zgodovino</button>
+      </div>
+      <div id="logsList" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- Dinamični zapisi premikov -->
+      </div>
+    </section>
+
+    <!-- ZAVIHEK 4: NASTAVITVE & PODATKI -->
+    <section id="tab-settings" class="tab-content" style="display: none; padding: 16px;">
+      <h2 style="font-size: 1.1rem; margin-bottom: 14px;">Varnostno kopiranje & Sinhronizacija</h2>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Izvoz podatkov</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+          Podatke lahko shranite za odpiranje v Excelu ali naredite popolno varnostno kopijo.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button class="btn-secondary" id="btnExportCSV" style="margin-top:0;">📊 Izvozi zalogo v Excel (CSV)</button>
+          <button class="btn-secondary" id="btnExportJSON" style="margin-top:0;">💾 Prenesi varnostno kopijo (JSON)</button>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Uvoz podatkov</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+          Obnovite podatke iz predhodno shranjene varnostne kopije JSON.
+        </p>
+        <input type="file" id="importFileInput" accept=".json" style="display: none;">
+        <button class="btn-secondary" id="btnTriggerImport" style="margin-top:0;">📂 Naloži varnostno kopijo (JSON)</button>
+      </div>
+
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px;">
+        <h3 style="font-size: 0.95rem; margin-bottom: 6px;">Hitri zagon & Testni podatki</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+          Naložite vzorčne artikle (vijaki, škatle, rokavice), da takoj preizkusite aplikacijo.
+        </p>
+        <button class="btn-secondary" id="btnLoadDemo">⚡ Naloži vzorčne demo artikle</button>
+      </div>
+
+      <div style="font-size: 0.78rem; color: var(--text-dim); text-align: center; margin-top: 24px;">
+        Skladišče PWA v1.0.0 &bull; 100% Offline IndexedDB &bull; Brez strežniške odvisnosti
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Spodnja navigacijska vrstica -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" data-tab="tab-inventory">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+      </svg>
+      <span>Zaloga</span>
+    </button>
+    <button class="nav-tab" data-tab="tab-scanner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+        <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+        <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+        <line x1="7" y1="12" x2="17" y2="12"></line>
+      </svg>
+      <span>Čitalnik</span>
+    </button>
+    <button class="nav-tab" data-tab="tab-history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polyline points="12 6 12 12 16 14"></polyline>
+      </svg>
+      <span>Premiki</span>
+    </button>
+    <button class="nav-tab" data-tab="tab-settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span>Nastavitve</span>
+    </button>
+  </nav>
+
+  <!-- MODAL: DODAJ / UREDI ARTIKEL -->
+  <div class="modal-backdrop" id="modalItem">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalItemTitle">Nov artikel</h3>
+        <button class="btn-close" id="btnCloseItemModal">&times;</button>
+      </div>
+      <form id="formItem">
+        <input type="hidden" id="itemId">
+        
+        <div class="form-group">
+          <label class="form-label" for="itemSku">Črtna koda / SKU *</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="itemSku" class="form-control" placeholder="npr. 383123456789 ali VIJ-M8" required>
+            <button type="button" class="btn-secondary" id="btnGenSku" style="margin-top:0; width:auto; padding: 0 12px;" title="Ustvari avtomatsko kodo">🎲</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="itemName">Naziv artikla *</label>
+          <input type="text" id="itemName" class="form-control" placeholder="npr. Vijak M8x40 pocinkan" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="itemCategory">Kategorija</label>
+            <input type="text" id="itemCategory" class="form-control" placeholder="npr. Pritrdilni mat." list="catSuggestions">
+            <datalist id="catSuggestions">
+              <option value="Pritrdilni material">
+              <option value="Embalaža">
+              <option value="Orodje">
+              <option value="Osebna zaščita">
+              <option value="Maziva & Kemija">
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="itemLocation">Lokacija v skladišču</label>
+            <input type="text" id="itemLocation" class="form-control" placeholder="npr. Regal A-01">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="itemQuantity">Trenutna količina *</label>
+            <input type="number" id="itemQuantity" class="form-control" min="0" step="any" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="itemMinQuantity">Minimalna zaloga (opozorilo)</label>
+            <input type="number" id="itemMinQuantity" class="form-control" min="0" step="any" placeholder="10">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="itemUnit">Enota mere</label>
+          <select id="itemUnit" class="form-control">
+            <option value="kos">kos (komad)</option>
+            <option value="kg">kg (kilogram)</option>
+            <option value="m">m (meter)</option>
+            <option value="l">l (liter)</option>
+            <option value="škatla">škatla</option>
+            <option value="paket">paket</option>
+            <option value="par">par</option>
+            <option value="paleta">paleta</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="itemNotes">Opombe / Opis</label>
+          <textarea id="itemNotes" class="form-control" rows="2" placeholder="Dodatne specifikacije, dobavitelj..."></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary" id="btnSaveItem">Shrani artikel</button>
+        <button type="button" class="btn-danger" id="btnDeleteItem" style="display: none;">Izbriši artikel</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: HITRI PREMIK (PREVZEM / IZDAJA) -->
+  <div class="modal-backdrop" id="modalStockChange">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="stockChangeTitle">Sprememba zaloge</h3>
+        <button class="btn-close" id="btnCloseStockChange">&times;</button>
+      </div>
+      <form id="formStockChange">
+        <input type="hidden" id="changeItemId">
+        <input type="hidden" id="changeDirection" value="in">
+
+        <div style="background: var(--bg-card); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 14px;">
+          <div style="font-weight: 700; font-size: 1.05rem;" id="changeItemName">Artikel</div>
+          <div style="color: var(--text-muted); font-size: 0.85rem;" id="changeItemCurrent">Trenutno stanje: 0 kos</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" id="changeAmountLabel">Količina prevzema (+)</label>
+          <input type="number" id="changeAmount" class="form-control" style="font-size: 1.3rem; font-weight: bold;" min="1" step="any" value="1" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Razlog / Številka dobavnice / Opomba</label>
+          <input type="text" id="changeNote" class="form-control" placeholder="npr. Dobavnica #1024 ali naročilo stranke">
+        </div>
+
+        <button type="submit" class="btn-primary" id="btnConfirmStockChange">Potrdi premik</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

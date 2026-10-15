@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="boxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="110" fill="url(#grad)" />
+  
+  <!-- Warehouse Box / Package Illustration -->
+  <g transform="translate(106, 96)">
+    <!-- Main Box Body -->
+    <path d="M150 10 L280 80 L280 230 L150 300 L20 230 L20 80 Z" fill="url(#boxGrad)" stroke="#b45309" stroke-width="6"/>
+    <!-- Top Lid Lines -->
+    <path d="M150 10 L150 150 L280 80 M150 150 L20 80" fill="none" stroke="#b45309" stroke-width="6"/>
+    
+    <!-- Barcode overlay on box side -->
+    <g transform="translate(50, 160)">
+      <rect x="0" y="0" width="8" height="40" fill="#ffffff" opacity="0.9"/>
+      <rect x="14" y="0" width="14" height="40" fill="#ffffff" opacity="0.9"/>
+      <rect x="34" y="0" width="6" height="40" fill="#ffffff" opacity="0.9"/>
+      <rect x="46" y="0" width="16" height="40" fill="#ffffff" opacity="0.9"/>
+      <rect x="68" y="0" width="8" height="40" fill="#ffffff" opacity="0.9"/>
+      <rect x="82" y="0" width="12" height="40" fill="#ffffff" opacity="0.9"/>
+    </g>
+    
+    <!-- Glowing scan beam -->
+    <line x1="10" y1="180" x2="160" y2="180" stroke="#22c55e" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>
