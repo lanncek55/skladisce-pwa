@@ -57,7 +57,7 @@
         </div>
       </div>
 
-      <!-- Hitri PDF izpisi zaloge in pomoč pri izdaji -->
+      <!-- Hitri PDF izpisi zaloge, konsolidacija in pomoč pri izdaji -->
       <div class="pdf-quick-bar">
         <button type="button" class="btn-pdf-pill" id="btnQuickPdfComplete" onclick="exportCompleteSetsPDF()" title="Prenesi PDF s popolnimi kompleti">
           <span>📄</span> PDF Popolni kompleti
@@ -65,8 +65,11 @@
         <button type="button" class="btn-pdf-pill warning" id="btnQuickPdfIncomplete" onclick="exportIncompleteSetsPDF()" title="Prenesi PDF z nepopolnimi škatlami">
           <span>⚠️</span> PDF Nepopolne škatle
         </button>
-        <button type="button" class="btn-pdf-pill" id="btnQuickDispatch" onclick="showReceiptDispatchPicker()" style="border-color: #f59e0b; color: #fbbf24; flex: 1 1 100%;" title="Odpri pomoč pri izdaji blaga po računu">
-          <span>🧾</span> Pomoč pri izdaji (Račun kupca)
+        <button type="button" class="btn-pdf-pill" id="btnOpenConsolidation" onclick="openConsolidationModal()" style="border-color: rgba(168, 85, 247, 0.4); color: #c084fc; background: rgba(168, 85, 247, 0.12);" title="Pregled in združevanje razpršenih škatel">
+          <span>🧹</span> Konsolidacija (<span id="consolidationBadge">0</span>)
+        </button>
+        <button type="button" class="btn-pdf-pill" id="btnQuickDispatch" onclick="showReceiptDispatchPicker()" style="border-color: #f59e0b; color: #fbbf24;" title="Odpri pomoč pri izdaji blaga po računu">
+          <span>🧾</span> Pomoč pri izdaji (Račun)
         </button>
       </div>
 
@@ -83,9 +86,14 @@
             </div>
           </div>
         </div>
-        <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" onclick="handleReceivingBannerClick()" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
-          🏁 Zaključi prevzem
-        </button>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button type="button" class="btn-sm-action" onclick="openReceivingArchiveModal()" style="background: rgba(255, 255, 255, 0.08); color: #cbd5e1; border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-weight: 600; font-size: 0.75rem; cursor: pointer;" title="Odpri arhiv preteklih prevzemov">
+            📚 Arhiv
+          </button>
+          <button type="button" class="btn-sm-action" id="btnOpenReceivingModal" onclick="handleReceivingBannerClick()" style="background: #10b981; color: #fff; border: none; border-radius: 6px; padding: 7px 12px; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
+            Pregled in zaključek
+          </button>
+        </div>
       </div>
 
       <!-- Iskalnik in filtri -->
@@ -300,16 +308,22 @@
           Podatke lahko shranite za odpiranje v Excelu ali naredite popolno varnostno kopijo.
         </p>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <button class="btn-secondary" id="btnPdfComplete" style="margin-top:0; border-color: rgba(56, 189, 248, 0.4); color: var(--primary); text-align: left; padding: 12px;">
+          <button type="button" class="btn-secondary" id="btnPdfComplete" onclick="exportCompleteSetsPDF()" style="margin-top:0; border-color: rgba(56, 189, 248, 0.4); color: var(--primary); text-align: left; padding: 12px;">
             📄 Prenesi PDF: Popolni kompleti (Zaloga s črtno kodo)
           </button>
-          <button class="btn-secondary" id="btnPdfIncomplete" style="margin-top:0; border-color: rgba(245, 158, 11, 0.4); color: var(--warning); text-align: left; padding: 12px;">
+          <button type="button" class="btn-secondary" id="btnPdfIncomplete" onclick="exportIncompleteSetsPDF()" style="margin-top:0; border-color: rgba(245, 158, 11, 0.4); color: var(--warning); text-align: left; padding: 12px;">
             ⚠️ Prenesi PDF: Nepopolne škatle (Manjkajoči deli s črtno kodo)
           </button>
-          <button class="btn-secondary" id="btnExportCSV" style="margin-top:0; text-align: left; padding: 12px;">
+          <button type="button" class="btn-secondary" onclick="openConsolidationModal()" style="margin-top:0; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; text-align: left; padding: 12px;">
+            🧹 Konsolidacija zaloge (Združevanje razpršenih škatel)
+          </button>
+          <button type="button" class="btn-secondary" onclick="openReceivingArchiveModal()" style="margin-top:0; border-color: rgba(16, 185, 129, 0.4); color: #34d399; text-align: left; padding: 12px;">
+            📚 Arhiv in PDF poročila preteklih prevzemov
+          </button>
+          <button type="button" class="btn-secondary" id="btnExportCSV" style="margin-top:0; text-align: left; padding: 12px;">
             📊 Izvozi zalogo v Excel (CSV)
           </button>
-          <button class="btn-secondary" id="btnExportJSON" style="margin-top:0; text-align: left; padding: 12px;">
+          <button type="button" class="btn-secondary" id="btnExportJSON" style="margin-top:0; text-align: left; padding: 12px;">
             💾 Prenesi varnostno kopijo (JSON)
           </button>
         </div>
@@ -751,7 +765,67 @@
             ✓ Zaključi pošiljko
           </button>
         </div>
+        <button type="button" class="btn-secondary" onclick="openReceivingArchiveModal()" style="margin: 0; padding: 10px; font-size: 0.82rem; border-color: rgba(255,255,255,0.15); color: var(--text-muted);">
+          📚 Odpri arhiv preteklih zaključenih pošiljk
+        </button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: KONSOLIDACIJA ZALOGE (ZDRUŽEVANJE ŠKATEL) -->
+  <div class="modal-backdrop" id="modalConsolidation" style="display: none;">
+    <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.3rem;">🧹</span>
+          <div>
+            <h3 class="modal-title">Konsolidacija zaloge</h3>
+            <div style="font-size:0.75rem; color:var(--text-muted);">Združevanje razpršenih škatel na enotne regale</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseConsolidationModal" onclick="closeConsolidationModal()">&times;</button>
+      </div>
+
+      <!-- Info kartica -->
+      <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.8rem; color: #e9d5ff; line-height: 1.4;">
+        ℹ️ Spodaj so zbrani artikli, katerih škatle ležijo na različnih regalih v skladišču. Z enim klikom premaknite razpršene kose na ciljni regal, da bodo vsi sestavni deli kompleta zbrani skupaj.
+      </div>
+
+      <!-- Gumbi za izvoz in osvežitev -->
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <button type="button" class="btn-primary" onclick="exportConsolidationPDF()" style="margin: 0; flex: 2; background: linear-gradient(135deg, #a855f7, #7c3aed); font-size: 0.82rem; padding: 10px;">
+          📄 Prenesi delovni nalog (PDF)
+        </button>
+        <button type="button" class="btn-secondary" onclick="renderConsolidationList()" style="margin: 0; flex: 1; font-size: 0.82rem; padding: 10px;">
+          🔄 Osveži
+        </button>
+      </div>
+
+      <!-- Seznam razpršenih artiklov -->
+      <div id="consolidationItemsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: ARHIV PRETEKLIH PREVZEMOV -->
+  <div class="modal-backdrop" id="modalReceivingArchive" style="display: none;">
+    <div class="modal-dialog" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.3rem;">📚</span>
+          <div>
+            <h3 class="modal-title">Arhiv prevzemnih pošiljk</h3>
+            <div style="font-size:0.75rem; color:var(--text-muted);">Zgodovina zaključenih prevzemov in PDF zapisniki</div>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseReceivingArchiveModal" onclick="closeReceivingArchiveModal()">&times;</button>
+      </div>
+
+      <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.8rem; color: #bae6fd; line-height: 1.4;">
+        ℹ️ Tu so shranjene vse pretekle zaključene pošiljke. Za vsako lahko kadarkoli ponovno prenesete uraden PDF zapisnik z vsemi podatki in primanjkljaji ali si ogledate seznam prevzetih škatel.
+      </div>
+
+      <!-- Seznam arhiviranih pošiljk -->
+      <div id="receivingArchiveList" style="display: flex; flex-direction: column; gap: 10px;"></div>
     </div>
   </div>
 

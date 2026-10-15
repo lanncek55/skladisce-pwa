@@ -277,6 +277,72 @@ const DB = {
   },
 
   /**
+   * Poišče vse artikle, katerih škatle ali zaloga so razpršene po različnih regalih
+   */
+  async getScatteredItems() {
+    const allItems = await this.getAllItems();
+    const scattered = [];
+
+    for (const item of allItems) {
+      const stats = this.getBoxStats(item);
+      const locationsList = [];
+      const distinctShelves = new Set();
+
+      for (const b of stats.breakdown) {
+        if (Array.isArray(b.locations) && b.locations.length > 0) {
+          for (const loc of b.locations) {
+            const locCount = Number(loc.count) || 0;
+            const locName = (loc.name || '').trim();
+            if (locCount > 0 && locName && locName !== 'Brez lokacije') {
+              distinctShelves.add(locName);
+              locationsList.push({
+                boxNum: b.boxNum,
+                boxTotal: stats.boxTotal,
+                shelf: locName,
+                count: locCount,
+                isPrimary: !!loc.isPrimary
+              });
+            }
+          }
+        } else if (b.count > 0 && b.location && b.location !== 'Brez lokacije') {
+          const locName = b.location.trim();
+          distinctShelves.add(locName);
+          locationsList.push({
+            boxNum: b.boxNum,
+            boxTotal: stats.boxTotal,
+            shelf: locName,
+            count: b.count,
+            isPrimary: true
+          });
+        }
+      }
+
+      // Razpršeno, če so škatle tega artikla na 2 ali več različnih policah
+      if (distinctShelves.size > 1) {
+        const shelvesArr = Array.from(distinctShelves);
+        // Ciljni regal je primarni regal ali regal z največ kosi
+        const primaryLoc = locationsList.find(l => l.isPrimary);
+        const targetShelf = primaryLoc ? primaryLoc.shelf : shelvesArr[0];
+        const boxesToMove = locationsList.filter(l => l.shelf !== targetShelf);
+
+        scattered.push({
+          sku: item.sku,
+          name: item.name,
+          category: item.category,
+          boxTotal: stats.boxTotal,
+          completeSets: stats.completeSets,
+          locations: locationsList,
+          distinctShelves: shelvesArr,
+          targetShelf: targetShelf,
+          boxesToMove: boxesToMove
+        });
+      }
+    }
+
+    return scattered;
+  },
+
+  /**
    * Vrne vse artikle s popolnimi podatki o zalogah po regalih
    */
   async getAllItems() {
