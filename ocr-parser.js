@@ -76,6 +76,7 @@ const WarehouseLabelParser = {
     // Vgrajen katalog znanih skladiščnih artiklov (iz etiket) kot takojšnja referenca
     const knownCatalog = {
       '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 1, box: 'Box 1/1' },
+      '3690565': { name: 'Mirror BALSLEV 35x127 w.oak', pieces: 4, box: 'Box 1/1' },
       '3725150': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
       '3759803': { name: 'Stacking chair LARVIK grey', pieces: 24, box: 'Box 1/1' },
       '4334604': { name: 'ULVIK 50x70 cm', pieces: 12, box: 'Box 1/1' },
@@ -169,11 +170,8 @@ const WarehouseLabelParser = {
     }
 
     // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size)
-    // POMEMBNO: "3 pcs/pk" v imenu (npr. Mirror SANDAGER 3 pcs/pk) pomeni komplet 3 kosov v 1 paketu,
-    // zato se šteje kot 1 prodajni artikel (1 kos)!
-    // Več kosov se šteje le, če ima škatla izrecno oznako: "Quantity: 4 pcs" ali "Colli Size 24".
+    // A) Izrecna oznaka v eni vrstici npr. "Quantity: 4 pcs", "Colli Size 24", "Quantity: 1"
     for (const line of lines) {
-      // Izrecna oznaka npr. "Quantity: 4 pcs", "Quantity: 12 pcs", "Colli Size 24", "Quantity: 1"
       const qtyLabelMatch = line.match(/(?:quantity|colli\s*size)[\s.:]*([0-9]+)\s*(?:pcs\.?)?/i);
       if (qtyLabelMatch) {
         quantityInBox = parseInt(qtyLabelMatch[1], 10);
@@ -181,7 +179,34 @@ const WarehouseLabelParser = {
       }
     }
 
-    // Če ni izrecne oznake Quantity:, je privzeto 1 kos na škatlo
+    // B) Če je oznaka "Quantity:" in številka v dveh vrsticah (npr. dvostolpčna postavitev)
+    if (!quantityInBox) {
+      const fullText = lines.join(' ');
+      const multilineMatch = fullText.match(/(?:quantity|colli\s*size)[\s.:]*([0-9]+)\s*(?:pcs\.?)?/i);
+      if (multilineMatch) {
+        quantityInBox = parseInt(multilineMatch[1], 10);
+      }
+    }
+
+    // C) Samostojna vrstica z zgolj količino npr. "4 pcs" ali "12 pcs" (ki ni vrstica z imenom)
+    if (!quantityInBox) {
+      for (const line of lines) {
+        if (line !== name) {
+          const standalonePcsMatch = line.match(/^([0-9]+)\s*(?:pcs\.?|kom)\b/i);
+          if (standalonePcsMatch) {
+            quantityInBox = parseInt(standalonePcsMatch[1], 10);
+            break;
+          }
+        }
+      }
+    }
+
+    // D) Preveri katalog znanih artiklov, če je šifra znana
+    if ((!quantityInBox || quantityInBox === 1) && articleNumber && knownCatalog[articleNumber] && knownCatalog[articleNumber].pieces) {
+      quantityInBox = knownCatalog[articleNumber].pieces;
+    }
+
+    // Če količina še vedno ni bila najdena, je privzeto 1 kos na škatlo
     if (quantityInBox === null || isNaN(quantityInBox) || quantityInBox <= 0) {
       quantityInBox = 1;
     }

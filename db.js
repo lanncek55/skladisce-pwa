@@ -258,6 +258,7 @@ const DB = {
     const demoItems = [
       { sku: '3725150', name: 'Garden chair FJELLERUP', category: 'Vrtno pohištvo', location: 'Regal V-04', quantity: 24, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 4, notes: 'W56 x H93 x D66 cm, Natural' },
       { sku: '3651003', name: 'Mirror SANDAGER 3 pcs/pk oak', category: 'Ogledala & Dekor', location: 'Regal O-02', quantity: 15, minQuantity: 6, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 1, notes: 'Ø45/55/70 oak (komplet 3 ogledal)' },
+      { sku: '3690565', name: 'Mirror BALSLEV 35x127 w.oak', category: 'Ogledala & Dekor', location: 'Regal O-04', quantity: 16, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 4, notes: 'W35xH127xD2 cm, Warm oak' },
       { sku: '3759803', name: 'Stacking chair LARVIK grey', category: 'Stoli & Mize', location: 'Paleta P-08', quantity: 48, minQuantity: 24, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 24, notes: 'Nakladalni stol, siva barva' },
       { sku: '4334604', name: 'ULVIK vzglavnik 50x70', category: 'Tekstil & Posteljnina', location: 'Regal T-11', quantity: 36, minQuantity: 12, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 12, notes: '50x70 cm, beli' },
       { sku: '4318500', name: 'PIL VANSE foam 30x47', category: 'Tekstil & Posteljnina', location: 'Regal T-12', quantity: 16, minQuantity: 8, unit: 'kos', boxInfo: 'Box 1/1', piecesPerBox: 8, notes: 'Anatomski vzglavnik iz spominske pene' },
