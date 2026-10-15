@@ -600,20 +600,31 @@ function getCroppedCanvasFromVideo(video) {
 }
 
 /**
- * Hitro predprocesiranje kontrasta z zvišanim pragom
+ * Hitro predprocesiranje: samodejna izravnava ravni svetlosti (Auto-Levels)
+ * Raztegne dinamični razpon med najtemnejšo in najsvetlejšo točko ter ohrani obliko črk
  */
 function preprocessCanvasForOCR(canvas, ctx) {
   try {
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imgData.data;
+
+    let minLum = 255;
+    let maxLum = 0;
+
     for (let i = 0; i < d.length; i += 4) {
-      // Sivina
-      const gray = (d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114);
-      // Povečaj kontrast in binariziraj za ostre črne črke na beli/rjavi podlagi
-      const val = gray > 135 ? 255 : (gray < 90 ? 0 : (gray - 90) * (255 / 45));
-      d[i] = val;
-      d[i+1] = val;
-      d[i+2] = val;
+      const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+      if (gray < minLum) minLum = gray;
+      if (gray > maxLum) maxLum = gray;
+    }
+
+    const range = (maxLum - minLum) || 1;
+
+    for (let i = 0; i < d.length; i += 4) {
+      const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+      const normalized = Math.min(255, Math.max(0, ((gray - minLum) / range) * 255));
+      d[i] = normalized;
+      d[i+1] = normalized;
+      d[i+2] = normalized;
     }
     ctx.putImageData(imgData, 0, 0);
   } catch (e) {
@@ -714,7 +725,13 @@ function renderBoxResultCard(existingItem) {
       <div class="box-sku-highlight">${escapeHtml(sku)}</div>
     </div>
 
-    <div style="font-size: 1.15rem; font-weight: 700; color: #fff;">${escapeHtml(name)}</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; margin: 4px 0;">
+      <div style="display:flex; justify-content: space-between; align-items:center;">
+        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Naziv artikla:</span>
+        <span style="font-size: 0.72rem; color: var(--primary);">✏️ klikni za popravek</span>
+      </div>
+      <input type="text" id="boxResultNameInput" class="form-control" style="font-size: 1.05rem; font-weight: 700; color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(56, 189, 248, 0.4); padding: 8px 10px;" value="${escapeHtml(name)}">
+    </div>
 
     <div class="box-badges">
       <span class="box-badge highlight">📦 ${escapeHtml(boxInfo)}</span>
@@ -766,14 +783,15 @@ window.executeBoxStockChange = async function(direction) {
   const sku = currentScannedBox.articleNumber;
   const piecesPerBox = Number(currentScannedBox.quantityInBox) || 1;
   const totalAmount = piecesPerBox * currentMultiplier;
+  const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
 
   let item = await DB.getItemBySKU(sku);
 
-  // Če artikel še ne obstaja, ga avtomatsko ustvari
+  // Če artikel še ne obstaja, ga avtomatsko ustvari s prepoznanim ali popravljenim imenom
   if (!item) {
     const newId = await DB.addItem({
       sku: sku || 'ART-' + Math.floor(1000 + Math.random() * 9000),
-      name: currentScannedBox.name || `Artikel ${sku}`,
+      name: chosenName,
       quantity: 0,
       minQuantity: 4,
       boxInfo: `Box ${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}`,
@@ -783,6 +801,10 @@ window.executeBoxStockChange = async function(direction) {
       location: 'Prevzemno območje'
     });
     item = await DB.getItemById(newId);
+  } else if (item.name !== chosenName) {
+    // Posodobi popravljeno ime v bazi
+    item.name = chosenName;
+    await DB.updateItem(item);
   }
 
   const note = `${currentMultiplier}x škatla (${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}), ${piecesPerBox} kos/škatlo`;
@@ -791,7 +813,7 @@ window.executeBoxStockChange = async function(direction) {
   await DB.adjustStock(item.id, delta, note, direction);
   if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
-  showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} kos` : `📤 Izdano: -${totalAmount} kos`);
+  showToast(direction === 'in' ? `📥 Prevzeto: +${totalAmount} kos (${chosenName})` : `📤 Izdano: -${totalAmount} kos (${chosenName})`);
 
   // Osveži prikaz
   const updatedItem = await DB.getItemById(item.id);
@@ -802,12 +824,13 @@ window.executeBoxStockChange = async function(direction) {
 window.openAddFromScannedBox = function() {
   if (!currentScannedBox) return;
 
+  const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || '';
   const modalItem = document.getElementById('modalItem');
   const formItem = document.getElementById('formItem');
   formItem.reset();
   document.getElementById('itemId').value = '';
   document.getElementById('itemSku').value = currentScannedBox.articleNumber || '';
-  document.getElementById('itemName').value = currentScannedBox.name || '';
+  document.getElementById('itemName').value = chosenName;
   document.getElementById('itemBoxInfo').value = `Box ${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}`;
   document.getElementById('itemPiecesPerBox').value = currentScannedBox.quantityInBox || 1;
   document.getElementById('itemQuantity').value = currentScannedBox.quantityInBox || 1;
