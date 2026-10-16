@@ -1987,6 +1987,7 @@ let isAutoScanEnabled = true;
 let isScanLoopRunning = false;
 let isProcessingFrame = false;
 let lastDetectedSKU = null;
+let lastDetectedBoxKey = null;
 let lastDetectedTime = 0;
 let autoScanAngleCycle = 0; // Izmenično 0° in 180° za narobe obrnjene škatle
 
@@ -2480,12 +2481,15 @@ async function processAutoScanFrame(video) {
     // 3. Če je artikel najden, sproži prepoznavo!
     if (parsed && parsed.articleNumber) {
       const now = performance.now();
-      // Prepreči takojšnje podvajanje iste škatle (za isti SKU 5s premor, za nov artikel pa takoj!)
-      if (parsed.articleNumber === lastDetectedSKU && (now - lastDetectedTime) < 5000) {
+      const currentBoxKey = `${parsed.articleNumber}_b${parsed.boxCurrent || 1}`;
+      // Če gre za natanko isto škatlo (isti SKU in isti box), počakaj kratek premor 1.2s.
+      // Če pa gre za DRUGI BOX istega artikla (npr. škatla 2/2 po škatli 1/2) ali nov artikel, se sproži TAKOJ brez čakanja!
+      if (currentBoxKey === lastDetectedBoxKey && (now - lastDetectedTime) < 1200) {
         isProcessingFrame = false;
         return;
       }
 
+      lastDetectedBoxKey = currentBoxKey;
       lastDetectedSKU = parsed.articleNumber;
       lastDetectedTime = now;
 
@@ -2551,8 +2555,10 @@ function getCroppedCanvasFromVideo(video, targetWidth = 1000) {
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
 
-  const cropW = Math.round(vw * 0.72);
-  const cropH = Math.round(vh * 0.44);
+  // Tesnejši izrez (52% širine, 28% višine) natančno ustreza vizirju
+  // s tem preprečimo, da bi kamera zajela sosednjo škatlo na paleti/regalu
+  const cropW = Math.round(vw * 0.52);
+  const cropH = Math.round(vh * 0.28);
   const cropX = Math.round((vw - cropW) / 2);
   const cropY = Math.round((vh - cropH) / 2);
 
@@ -2725,7 +2731,10 @@ async function handleBoxScanResult(parsed) {
   currentMultiplier = 1;
 
   const resultCard = document.getElementById('scanResultCard');
-  resultCard.style.display = 'flex';
+  if (resultCard) {
+    resultCard.style.display = 'flex';
+    resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   const sku = parsed.articleNumber;
   let existingItem = null;
@@ -3109,12 +3118,11 @@ async function finishReceiptDispatch() {
 window.closeBoxResultCard = function() {
   const resultCard = document.getElementById('scanResultCard');
   if (resultCard) resultCard.style.display = 'none';
-  if (currentScannedBox && currentScannedBox.articleNumber) {
-    lastDetectedSKU = currentScannedBox.articleNumber;
-  }
+  lastDetectedBoxKey = null;
+  lastDetectedSKU = null;
+  lastDetectedTime = 0;
   currentScannedBox = null;
   window.parsed = null;
-  lastDetectedTime = performance.now();
 };
 
 function renderBoxResultCard(existingItem) {
@@ -3162,17 +3170,17 @@ function renderBoxResultCard(existingItem) {
       suggestedReason = `Škatla ${withStock.boxNum}/${boxTotal} je na regalu <strong>${escapeHtml(suggestedShelf)}</strong> (${withStock.count} kos).`;
 
       smartShelfHintHtml = `
-        <div class="smart-shelf-banner" style="background: rgba(16, 185, 129, 0.14); border: 1px solid #10b981; border-radius: var(--radius-sm); padding: 10px 12px; margin: 6px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div class="smart-shelf-banner" style="background: rgba(16, 185, 129, 0.14); border: 1px solid #10b981; border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
           <div style="flex: 1;">
-            <div style="font-size: 0.84rem; font-weight: 800; color: #fff;">
-              Priporočeni regal: <span style="color: #34d399; font-size: 0.95rem;">${escapeHtml(suggestedShelf)}</span>
+            <div style="font-size: 0.8rem; font-weight: 800; color: #fff;">
+              Priporočeni regal: <span style="color: #34d399; font-size: 0.9rem;">${escapeHtml(suggestedShelf)}</span>
             </div>
-            <div style="font-size: 0.73rem; color: #d1fae5; margin-top: 2px;">
+            <div style="font-size: 0.72rem; color: #d1fae5; margin-top: 1px;">
               ${suggestedReason}
             </div>
           </div>
-          <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(suggestedShelf)}')" style="background: #10b981; color: #042f2e; border: none; border-radius: 6px; padding: 7px 11px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap;">
-            Izberi regal
+          <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(suggestedShelf)}')" style="background: #10b981; color: #042f2e; border: none; border-radius: 6px; padding: 5px 9px; font-weight: 800; font-size: 0.75rem; cursor: pointer; white-space: nowrap;">
+            Izberi
           </button>
         </div>
       `;
@@ -3190,16 +3198,16 @@ function renderBoxResultCard(existingItem) {
   if (existingItem) {
     const stats = DB.getBoxStats(existingItem);
     stockInfoHtml = `
-      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.85rem; color: var(--success); display:flex; justify-content:space-between; align-items:center;">
+      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 0.8rem; color: var(--success); display:flex; justify-content:space-between; align-items:center;">
         <span>Zaloga celih kompletov:</span>
-        <strong style="font-size: 1.05rem;">${stats.completeSets} ${existingItem.unit || (stats.boxTotal > 1 ? 'garnitur' : 'kos')}</strong>
+        <strong style="font-size: 0.95rem;">${stats.completeSets} ${existingItem.unit || (stats.boxTotal > 1 ? 'garnitur' : 'kos')}</strong>
       </div>
     `;
 
     if (stats.boxTotal > 1) {
       boxBreakdownHtml = `
-        <div class="box-breakdown-container" style="margin-top: 6px;">
-          <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">
+        <div class="box-breakdown-container" style="margin-top: 4px;">
+          <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">
             Stanje vseh škatel tega artikla:
           </div>
           ${stats.breakdown.map(b => `
@@ -3208,7 +3216,7 @@ function renderBoxResultCard(existingItem) {
               <span class="box-breakdown-count">${b.count} kos</span>
             </div>
           `).join('')}
-          <div style="font-size: 0.76rem; margin-top: 2px;">
+          <div style="font-size: 0.73rem; margin-top: 2px;">
             ${stats.hasIncomplete 
               ? `<span style="color: var(--warning); font-weight:600;">${escapeHtml(stats.missingSummary)} (celih: ${stats.completeSets})</span>` 
               : `<span style="color: var(--success); font-weight:600;">Vse škatle na voljo (${stats.completeSets} kompletov)</span>`}
@@ -3218,7 +3226,7 @@ function renderBoxResultCard(existingItem) {
     }
   } else {
     stockInfoHtml = `
-      <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.85rem; color: var(--warning);">
+      <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 0.8rem; color: var(--warning);">
         Artikel s šifro <strong>${escapeHtml(sku)}</strong> še ni vpisan v zalogo.
       </div>
     `;
@@ -3227,48 +3235,48 @@ function renderBoxResultCard(existingItem) {
   resultCard.innerHTML = `
     <div class="box-result-header">
       <div style="display:flex; align-items:baseline; gap: 8px;">
-        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">ŠIFRA ARTIKLA:</span>
+        <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">ŠIFRA ARTIKLA:</span>
         <span class="box-sku-highlight">${escapeHtml(sku)}</span>
       </div>
       <button type="button" class="btn-card-close" onclick="closeBoxResultCard()" title="Zapri in nadaljuj skeniranje">✕</button>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 4px; margin: 4px 0;">
+    <div style="display: flex; flex-direction: column; gap: 2px; margin: 2px 0;">
       <div style="display:flex; justify-content: space-between; align-items:center;">
-        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Naziv artikla:</span>
-        <span style="font-size: 0.72rem; color: var(--primary);">uredi naziv</span>
+        <span style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Naziv artikla:</span>
+        <span style="font-size: 0.7rem; color: var(--primary);">uredi naziv</span>
       </div>
-      <input type="text" id="boxResultNameInput" class="form-control" style="font-size: 1.05rem; font-weight: 700; color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(56, 189, 248, 0.4); padding: 8px 10px;" value="${escapeHtml(name)}">
+      <input type="text" id="boxResultNameInput" class="form-control" style="font-size: 1rem; font-weight: 700; color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(56, 189, 248, 0.4); padding: 6px 10px;" value="${escapeHtml(name)}">
     </div>
 
-    <div class="box-badges" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+    <div class="box-badges" style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">
       <span class="box-badge highlight">${escapeHtml(boxInfo)}</span>
       ${boxTotal > 1 ? `<span class="box-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">Škatla ${boxNum} od ${boxTotal}</span>` : ''}
       
       <!-- Okenček za branje in vnos kosov / manjših škatel v škatli (iz OCR etikete) -->
-      <div class="box-badge highlight" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;">
-        <span style="font-size: 0.76rem; font-weight: 700;">Kosov v škatli:</span>
-        <input type="number" id="boxPiecesPerBoxInput" min="1" value="${Math.max(1, parseInt(parsed.quantityInBox, 10) || 1)}" style="width: 52px; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 800; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.95rem;" oninput="updatePiecesPerBox(this.value)">
-        <span style="font-size: 0.72rem; color: var(--text-muted);">(manjših škatel)</span>
+      <div class="box-badge highlight" style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px;">
+        <span style="font-size: 0.74rem; font-weight: 700;">Kosov v škatli:</span>
+        <input type="number" id="boxPiecesPerBoxInput" min="1" value="${Math.max(1, parseInt(parsed.quantityInBox, 10) || 1)}" style="width: 48px; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 800; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.9rem;" oninput="updatePiecesPerBox(this.value)">
+        <span style="font-size: 0.7rem; color: var(--text-muted);">(manjših škatel)</span>
       </div>
     </div>
 
     ${smartShelfHintHtml}
 
     <!-- Vnos / urejanje lokacije za to posamezno škatlo -->
-    <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
-        <span style="font-size: 0.74rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">
+    <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-sm); padding: 6px 10px; margin: 3px 0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 3px;">
+        <span style="font-size: 0.72rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">
           Lokacija za Škatlo ${boxNum}/${boxTotal}:
         </span>
-        <span style="font-size: 0.7rem; color: var(--text-muted);">regal / polica</span>
+        <span style="font-size: 0.68rem; color: var(--text-muted);">regal / polica</span>
       </div>
-      <input type="text" id="boxResultLocationInput" class="form-control" style="padding: 7px 10px; font-weight: 600; font-size: 0.95rem; background: rgba(0,0,0,0.35); border-color: rgba(56, 189, 248, 0.4);" placeholder="npr. Regal A-01" value="${escapeHtml(currentBoxLoc || '')}" oninput="updateLastUsedShelf(this.value)">
+      <input type="text" id="boxResultLocationInput" class="form-control" style="padding: 6px 10px; font-weight: 600; font-size: 0.9rem; background: rgba(0,0,0,0.35); border-color: rgba(56, 189, 248, 0.4);" placeholder="npr. Regal A-01" value="${escapeHtml(currentBoxLoc || '')}" oninput="updateLastUsedShelf(this.value)">
       ${lastUsedShelf ? `
-        <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 3px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
           <span>Prekopiran regal prejšnjega artikla: <strong style="color: #38bdf8;">${escapeHtml(lastUsedShelf)}</strong></span>
           ${(existingBoxLoc && existingBoxLoc !== lastUsedShelf && existingBoxLoc !== 'Prevzemno območje' && existingBoxLoc !== 'Brez lokacije') ? `
-            <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(existingBoxLoc)}')" style="padding: 2px 7px; font-size: 0.7rem; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #cbd5e1; border-radius: 4px; cursor: pointer;">
+            <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(existingBoxLoc)}')" style="padding: 2px 6px; font-size: 0.68rem; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #cbd5e1; border-radius: 4px; cursor: pointer;">
               Uporabi obstoječi regal artikla (${escapeHtml(existingBoxLoc)})
             </button>
           ` : ''}
@@ -3276,24 +3284,21 @@ function renderBoxResultCard(existingItem) {
       ` : ''}
     </div>
 
-    ${boxBreakdownHtml}
-    ${stockInfoHtml}
-
     <!-- Vnos števila škatel z namenskim okenčkom za ročni vpis ter hitrimi gumbi -->
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0; display: flex; flex-direction: column; gap: 6px;">
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; margin: 3px 0; display: flex; flex-direction: column; gap: 4px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
+        <span style="font-size: 0.74rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
           Število škatel:
         </span>
         <div style="display: flex; align-items: center; gap: 4px;">
-          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(-1)" style="padding: 4px 10px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">-</button>
-          <input type="number" id="boxMultiplierInput" min="1" value="${currentMultiplier}" style="width: 60px; text-align: center; font-size: 1.05rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 4px 6px;" oninput="setBoxMultiplierCustom(this.value)">
-          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(1)" style="padding: 4px 10px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">+</button>
+          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(-1)" style="padding: 3px 9px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">-</button>
+          <input type="number" id="boxMultiplierInput" min="1" value="${currentMultiplier}" style="width: 56px; text-align: center; font-size: 1rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 3px 5px;" oninput="setBoxMultiplierCustom(this.value)">
+          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(1)" style="padding: 3px 9px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">+</button>
         </div>
       </div>
 
-      <div class="box-multiplier-row" style="margin: 0; justify-content: flex-end; gap: 6px;">
-        <span style="font-size: 0.72rem; color: var(--text-dim); margin-right: auto;">Hitri izbor:</span>
+      <div class="box-multiplier-row" style="margin: 0; justify-content: flex-end; gap: 5px;">
+        <span style="font-size: 0.7rem; color: var(--text-dim); margin-right: auto;">Hitri izbor:</span>
         <button type="button" class="mult-btn ${currentMultiplier === 1 ? 'active' : ''}" onclick="setBoxMultiplier(1)">1x</button>
         <button type="button" class="mult-btn ${currentMultiplier === 2 ? 'active' : ''}" onclick="setBoxMultiplier(2)">2x</button>
         <button type="button" class="mult-btn ${currentMultiplier === 5 ? 'active' : ''}" onclick="setBoxMultiplier(5)">5x</button>
@@ -3301,31 +3306,35 @@ function renderBoxResultCard(existingItem) {
       </div>
 
       <!-- Izračun skupaj kosov / manjših škatel -->
-      <div id="boxCalcSummary" style="font-size: 0.8rem; font-weight: 600; color: var(--primary); text-align: right; margin-top: 2px;">
+      <div id="boxCalcSummary" style="font-size: 0.78rem; font-weight: 600; color: var(--primary); text-align: right; margin-top: 1px;">
         ${(parseInt(parsed.quantityInBox, 10) > 1) ? `Skupaj: ${currentMultiplier} škatel × ${parsed.quantityInBox} kos = ${currentMultiplier * parsed.quantityInBox} kosov (manjših škatel)` : `Skupaj: ${currentMultiplier} škatel`}
       </div>
     </div>
 
-    <!-- Hitra skladiščna dejanja za prevzem in izdajo -->
+    <!-- Hitra skladiščna dejanja za prevzem in izdajo (NEPOSREDNO NA DOSEGU PALCA) -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
-      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px; font-weight: 800;">
+      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 11px; font-weight: 800; font-size: 0.95rem;">
         ${(parseInt(parsed.quantityInBox, 10) > 1) 
-          ? `PREVZEMI (+${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos • ${currentMultiplier}x šk.)` 
+          ? `PREVZEMI (+${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos)` 
           : `PREVZEMI (+${currentMultiplier} škatel)`}
       </button>
-      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px; font-weight: 800;">
+      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 11px; font-weight: 800; font-size: 0.95rem;">
         ${(parseInt(parsed.quantityInBox, 10) > 1) 
-          ? `IZDAJ (-${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos • ${currentMultiplier}x šk.)` 
+          ? `IZDAJ (-${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos)` 
           : `IZDAJ (-${currentMultiplier} škatel)`}
       </button>
     </div>
 
+    <!-- Dodatne informacije o stanju zaloge (nameščene spodaj za nemoten potek) -->
+    ${stockInfoHtml}
+    ${boxBreakdownHtml}
+
     ${!existingItem && sku ? `
-      <button class="btn-secondary" onclick="openAddFromScannedBox()" style="margin-top: 4px; border-color: var(--primary); color: var(--primary);">
+      <button class="btn-secondary" onclick="openAddFromScannedBox()" style="margin-top: 3px; border-color: var(--primary); color: var(--primary); padding: 8px; font-size: 0.82rem;">
         + Dodaj ta artikel v skladišče
       </button>
     ` : ''}
-    <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 4px; padding: 10px; font-size: 0.85rem; border-color: rgba(255,255,255,0.15);">
+    <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 3px; padding: 8px; font-size: 0.8rem; border-color: rgba(255,255,255,0.15);">
       Zapri in skeniraj naslednjo škatlo
     </button>
   `;
@@ -3475,6 +3484,11 @@ window.executeBoxStockChange = async function(direction) {
 
   const unitDesc = (piecesPerBox > 1) ? `${totalAmount} kos (${boxCount} škat.)` : `${totalAmount} škatel`;
   showToast(direction === 'in' ? `Prevzeto: +${unitDesc} (${chosenName})` : `Izdano: -${unitDesc} (${chosenName})`);
+
+  // Takoj ponastavi cooldown, da je kamera v trenutku pripravljena na naslednjo škatlo
+  lastDetectedBoxKey = null;
+  lastDetectedSKU = null;
+  lastDetectedTime = 0;
 
   // Osveži prikaz
   const updatedItem = await DB.getItemById(item.sku);

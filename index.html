@@ -168,22 +168,17 @@
       </div>
 
       <!-- Glavni kontrolni gumbi -->
-      <div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px;">
-        <button class="btn-secondary" id="btnCaptureOCR" style="margin-top:0; font-size: 0.92rem; padding: 10px; border-color: rgba(56, 189, 248, 0.4); color: var(--primary);">
-          Ročni zajem slike
+      <div style="width: 100%; max-width: 420px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 2px 0;">
+        <button class="btn-secondary" id="btnCaptureOCR" style="margin:0; font-size: 0.78rem; padding: 7px 4px; text-align: center; border-color: rgba(56, 189, 248, 0.4); color: var(--primary);">
+          Ročni zajem
         </button>
-
-        <div style="display: flex; gap: 8px;">
-          <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display: none;">
-          <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin-top:0; flex: 1;">
-            Izberi sliko iz galerije
-          </button>
-        </div>
-
-        <!-- Gumb za pomoč pri izdaji po računu -->
-        <button class="btn-primary" id="btnReceiptDispatchTrigger" style="margin-top: 4px; background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; color: #fff; font-weight: 700; font-size: 0.92rem; padding: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-          Izdaja blaga po računu
+        <button class="btn-secondary" id="btnTriggerCameraPhoto" style="margin:0; font-size: 0.78rem; padding: 7px 4px; text-align: center;">
+          Galerija
         </button>
+        <button class="btn-primary" id="btnReceiptDispatchTrigger" style="margin:0; background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 7px 4px; text-align: center;">
+          Izdaja račun
+        </button>
+        <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display: none;">
       </div>
 
       <!-- Kartica z rezultatom prepoznane škatle -->

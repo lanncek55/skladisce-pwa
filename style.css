@@ -446,7 +446,7 @@ body {
   position: relative;
   width: 100%;
   max-width: 420px;
-  height: 320px;
+  height: 230px;
   background: #000;
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -472,8 +472,8 @@ body {
 }
 
 .scan-frame.box-frame {
-  width: 290px;
-  height: 190px;
+  width: 260px;
+  height: 140px;
   border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: var(--radius-md);
   position: relative;
@@ -687,10 +687,10 @@ body {
   background: var(--bg-card);
   border: 2px solid #38bdf8;
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   box-shadow: 0 10px 30px rgba(56, 189, 248, 0.2);
   animation: popIn 0.2s ease-out;
 }
