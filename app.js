@@ -6,6 +6,13 @@
 let currentFilter = 'all';
 let cameraStream = null;
 let barcodeDetector = null;
+if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+  try {
+    barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'ean_13', 'code_128', 'code_39'] });
+  } catch (e) {
+    try { barcodeDetector = new window.BarcodeDetector(); } catch (err) {}
+  }
+}
 let scanInterval = null;
 
 // Inicializacija ob nalaganju strani
@@ -45,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('skladisce_demo_seeded', 'true');
   }
   await refreshInventory();
+  updateActiveShelfPillDisplay();
 });
 
 /* =========================================================================
@@ -112,6 +120,7 @@ function setupTabNavigation() {
         stopCamera();
       } else {
         startCamera();
+        updateActiveShelfPillDisplay();
       }
 
       // Osveži podatke za ustrezen zavihek
@@ -1988,6 +1997,156 @@ function getKnownSKUsSet() {
   return skus;
 }
 
+/* =========================================================================
+   QR KODE REGALOV IN POLIC (TLORIS SKLADIŠČA)
+   ========================================================================= */
+
+function isShelfQRCode(str) {
+  if (!str || typeof str !== 'string') return false;
+  const clean = str.trim();
+  if (/^(?:REGAL|LOC|SHELF|SKLADISCE:LOC):/i.test(clean)) return true;
+  // Standardni tloris skladišča: R1-A-P1 do R6-B-P3 ali stene SZ-P1, SS-P2, SL1-P3, SL2-P1
+  if (/^(?:R[1-6]-[AB]|S[ZSLB][12]?)-P[1-3]$/i.test(clean)) return true;
+  if (/^Regal\s+[A-Za-z0-9-]+/i.test(clean)) return true;
+  return false;
+}
+
+function parseShelfQR(str) {
+  let clean = String(str || '').trim();
+  clean = clean.replace(/^(?:REGAL|LOC|SHELF|SKLADISCE:LOC):/i, '').trim();
+
+  let friendly = clean;
+  const m = clean.match(/^R([1-6])-([AB])-P([1-3])$/i);
+  if (m) {
+    const row = m[1];
+    const side = (m[2].toUpperCase() === 'A') ? 'Stran A (Zgoraj)' : 'Stran B (Spodaj)';
+    const shelfMap = { '1': 'Spodnja polica', '2': 'Srednja polica', '3': 'Zgornja polica' };
+    friendly = `Regal ${row} • ${side} • ${shelfMap[m[3]] || `Polica ${m[3]}`}`;
+  } else {
+    const wallMap = {
+      'SZ': 'Stena Zgoraj',
+      'SS': 'Stena Spodaj',
+      'SL1': 'Stena Levo (Nad vrati)',
+      'SL2': 'Stena Levo (Pod vrati)'
+    };
+    const wm = clean.match(/^(SZ|SS|SL1|SL2)-P([1-3])$/i);
+    if (wm) {
+      const shelfMap = { '1': 'Spodnja polica', '2': 'Srednja polica', '3': 'Zgornja polica' };
+      friendly = `${wallMap[wm[1].toUpperCase()]} • ${shelfMap[wm[2]]}`;
+    }
+  }
+
+  return { code: clean, displayName: friendly };
+}
+
+function playShelfChimeBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08); // A5
+    gain.gain.setValueAtTime(0.28, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.26);
+  } catch (e) {}
+}
+
+let lastScannedShelfCode = '';
+let lastShelfScanTime = 0;
+
+function handleShelfQRScanned(rawVal) {
+  const parsed = parseShelfQR(rawVal);
+  if (!parsed || !parsed.code) return;
+
+  const now = performance.now();
+  if (parsed.code === lastScannedShelfCode && (now - lastShelfScanTime) < 2500) {
+    return;
+  }
+  lastScannedShelfCode = parsed.code;
+  lastShelfScanTime = now;
+
+  playShelfChimeBeep();
+  if (navigator.vibrate) navigator.vibrate([70, 40, 70]);
+
+  lastUsedShelf = parsed.code;
+  try { localStorage.setItem('skladisce_last_shelf', parsed.code); } catch(e){}
+
+  updateActiveShelfPillDisplay();
+
+  const locInput = document.getElementById('boxResultLocationInput');
+  if (locInput) {
+    locInput.value = parsed.code;
+  }
+
+  showToast(`Spremenjen aktivni regal: ${parsed.displayName}`);
+}
+
+function updateActiveShelfPillDisplay() {
+  const textEl = document.getElementById('currentActiveShelfText');
+  if (textEl) {
+    if (lastUsedShelf) {
+      const parsed = parseShelfQR(lastUsedShelf);
+      textEl.textContent = parsed.code + ' (' + parsed.displayName + ')';
+    } else {
+      textEl.textContent = 'Ni določen (Poskeniraj QR regala)';
+    }
+  }
+}
+
+window.promptManualShelfChange = function() {
+  const current = lastUsedShelf || 'R1-A-P1';
+  const val = prompt('Vnesite želeni regal in polico (npr. R1-A-P1 ali SZ-P2):', current);
+  if (val && val.trim()) {
+    handleShelfQRScanned(val.trim());
+  }
+};
+
+/* =========================================================================
+   1-KLIK UPRAVLJANJE S FIZIČNIMI TIPKAMI ZA GLASNOST
+   ========================================================================= */
+
+window.handleHardwareVolumeKey = function(direction) {
+  const resultCard = document.getElementById('scanResultCard');
+  const isCardOpen = resultCard && resultCard.style.display === 'flex';
+
+  if (!isCardOpen) {
+    return false;
+  }
+
+  if (direction === 'up') {
+    // 1-KLIK POTRDITEV PREVZEMA
+    executeBoxStockChange('in');
+    return true;
+  } else if (direction === 'down') {
+    // ZAVRŽI / ZAPRI KARTICO
+    closeBoxResultCard();
+    showToast('Zaznava zavržena.');
+    return true;
+  }
+  return false;
+};
+
+// Podpora za fizične tipke ali bližnjice na tipkovnici (ArrowUp / ArrowDown)
+window.addEventListener('keydown', (e) => {
+  const resultCard = document.getElementById('scanResultCard');
+  const isCardOpen = resultCard && resultCard.style.display === 'flex';
+  if (!isCardOpen) return;
+
+  if (e.key === 'VolumeUp' || e.code === 'AudioVolumeUp' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    window.handleHardwareVolumeKey('up');
+  } else if (e.key === 'VolumeDown' || e.code === 'AudioVolumeDown' || e.key === 'ArrowDown' || e.key === 'Escape') {
+    e.preventDefault();
+    window.handleHardwareVolumeKey('down');
+  }
+});
+
 // Nastavitve za samodejno branje v realnem času
 let isAutoScanEnabled = true;
 let isScanLoopRunning = false;
@@ -2374,7 +2533,25 @@ async function runAutoScanTick() {
 }
 
 /**
- * Analiza sličice v realnem času
+ * Pomožna funkcija za analizo ene sličice s strojnim TextDetectorjem
+ */
+async function parseFrameWithOcr(canvas) {
+  if (!nativeTextDetector) return null;
+  try {
+    const blocks = await nativeTextDetector.detect(canvas);
+    if (!blocks || blocks.length === 0) return null;
+    const fullText = blocks.map(b => b.rawValue).join('\n');
+    return WarehouseLabelParser.parse(fullText, blocks, {
+      knownSkus: getKnownSKUsSet(),
+      imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Analiza sličice v realnem času z 3-Frame Burst konsenz točkovanjem in QR detekcijo regala
  */
 async function processAutoScanFrame(video) {
   if (isProcessingFrame) return;
@@ -2397,6 +2574,23 @@ async function processAutoScanFrame(video) {
 
     if (liveBadge) liveBadge.classList.add('analyzing');
 
+    // 0. Preverjanje QR kode regala (če je usmerjeno v polico/regal)
+    if (barcodeDetector) {
+      try {
+        const barcodes = await barcodeDetector.detect(frameCanvas);
+        if (barcodes && barcodes.length > 0) {
+          for (const b of barcodes) {
+            const raw = b.rawValue || '';
+            if (isShelfQRCode(raw)) {
+              handleShelfQRScanned(raw);
+              isProcessingFrame = false;
+              return;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     // 2. AI Cikel kotov: [0°, 90°, 0°, 270°]
     // Omogoča takojšnje prepoznavanje ležečih in pokončnih etiket brez obračanja telefona v roki!
     const scanAngles = [0, 90, 0, 270];
@@ -2405,24 +2599,61 @@ async function processAutoScanFrame(video) {
 
     let canvasToTest = (currentAngle === 0) ? frameCanvas : rotateCanvas(frameCanvas, currentAngle);
 
-    // Strojni TextDetector v brskalniku / Android WebView
-    if (nativeTextDetector) {
-      try {
-        const blocks = await nativeTextDetector.detect(canvasToTest);
-        if (blocks && blocks.length > 0) {
-          const fullText = blocks.map(b => b.rawValue).join('\n');
-          const p = WarehouseLabelParser.parse(fullText, blocks, {
-            knownSkus: getKnownSKUsSet(),
-            imageCenter: { x: canvasToTest.width / 2, y: canvasToTest.height / 2 }
-          });
-          if (p && p.articleNumber) {
-            parsed = p;
-          }
-        }
-      } catch (e) {}
+    // Prva sličica (Frame 1)
+    const frame1Result = await parseFrameWithOcr(canvasToTest);
+    if (!frame1Result || !frame1Result.articleNumber) {
+      isProcessingFrame = false;
+      return;
     }
 
-    // 3. Če je artikel najden, sproži prepoznavo!
+    // 3. BURST TOČKOVANJE (3-Frame Consensus Voting):
+    // Takoj po prvi detekciji zajamemo še 2 sličici (z zamikom 40ms)
+    // in sistem točkuje konsenz med sličicami, kar prepreči branje optičnega šuma ali 7 naključnih številk!
+    const candidates = [frame1Result];
+
+    for (let f = 2; f <= 3; f++) {
+      await new Promise(r => setTimeout(r, 40));
+      if (!isScanLoopRunning) break;
+      const nextCrop = getCroppedCanvasFromVideo(video, 1000);
+      if (nextCrop && nextCrop.canvas) {
+        const nextTestCanvas = (currentAngle === 0) ? nextCrop.canvas : rotateCanvas(nextCrop.canvas, currentAngle);
+        const nextRes = await parseFrameWithOcr(nextTestCanvas);
+        if (nextRes && nextRes.articleNumber) {
+          candidates.push(nextRes);
+        }
+      }
+    }
+
+    // Preštejemo glasove po SKU-ju med vsemi 3 frami
+    const skuVotes = {};
+    for (const c of candidates) {
+      skuVotes[c.articleNumber] = (skuVotes[c.articleNumber] || 0) + 1;
+    }
+
+    let bestSku = null;
+    let maxVotes = 0;
+    for (const [sku, votes] of Object.entries(skuVotes)) {
+      if (votes > maxVotes) {
+        maxVotes = votes;
+        bestSku = sku;
+      }
+    }
+
+    const isKnown = getKnownSKUsSet().has(bestSku);
+    // Konsenz: vsaj 2 od 3 framov se morata popolnoma ujemati, ali pa 1 frame z visoko oceno zaupanja znanega artikla iz baze
+    const hasConsensus = maxVotes >= 2 || (maxVotes === 1 && candidates.length === 1 && isKnown && (frame1Result.matchScore || 0) >= 40);
+
+    if (!hasConsensus || !bestSku) {
+      isProcessingFrame = false;
+      return;
+    }
+
+    // Izberemo kandidata zmagovalnega SKU-ja z najvišjim točkovanjem in podatki o škatli
+    const matching = candidates.filter(c => c.articleNumber === bestSku);
+    matching.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+    parsed = matching[0];
+
+    // 4. Če je artikel potrjen s konsenzom, sproži prepoznavo!
     if (parsed && parsed.articleNumber) {
       const now = performance.now();
       const currentBoxKey = `${parsed.articleNumber}_b${parsed.boxCurrent || 1}`;
@@ -3208,12 +3439,13 @@ function renderBoxResultCard(existingItem) {
 
     <!-- Hitra skladiščna dejanja za prevzem in izdajo (NEPOSREDNO NA DOSEGU PALCA) -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
-      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 11px; font-weight: 800; font-size: 0.95rem;">
-        ${(parseInt(parsed.quantityInBox, 10) > 1) 
+      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 10px 4px; font-weight: 800; font-size: 0.95rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+        <span>${(parseInt(parsed.quantityInBox, 10) > 1) 
           ? `PREVZEMI (+${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos)` 
-          : `PREVZEMI (+${currentMultiplier} škatel)`}
+          : `PREVZEMI (+${currentMultiplier} škatel)`}</span>
+        <span style="font-size: 0.68rem; font-weight: 700; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 6px; border-radius: 4px;">🔊 Tipka Glasnost GOR</span>
       </button>
-      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 11px; font-weight: 800; font-size: 0.95rem;">
+      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 10px 4px; font-weight: 800; font-size: 0.95rem;">
         ${(parseInt(parsed.quantityInBox, 10) > 1) 
           ? `IZDAJ (-${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos)` 
           : `IZDAJ (-${currentMultiplier} škatel)`}
@@ -3229,8 +3461,9 @@ function renderBoxResultCard(existingItem) {
         + Dodaj ta artikel v skladišče
       </button>
     ` : ''}
-    <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 3px; padding: 8px; font-size: 0.8rem; border-color: rgba(255,255,255,0.15);">
-      Zapri in skeniraj naslednjo škatlo
+    <button type="button" class="btn-secondary" onclick="closeBoxResultCard()" style="margin-top: 3px; padding: 8px; font-size: 0.8rem; border-color: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; gap: 6px;">
+      <span>Zavrzi / Zapri in skeniraj naslednjo</span>
+      <span style="font-size: 0.68rem; font-weight: 700; opacity: 0.85; background: rgba(255,255,255,0.12); padding: 1px 6px; border-radius: 4px;">🔉 Tipka Glasnost DOL</span>
     </button>
   `;
 }
@@ -3389,6 +3622,11 @@ window.executeBoxStockChange = async function(direction) {
   const updatedItem = await DB.getItemById(item.sku);
   renderBoxResultCard(updatedItem);
   await refreshInventory();
+
+  // 1-KLIK SISTEM: Samodejno zapri kartico po 350ms, da lahko skladiščnik takoj skenira naslednjo škatlo
+  setTimeout(() => {
+    closeBoxResultCard();
+  }, 350);
 };
 
 window.openAddFromScannedBox = function() {
@@ -5152,4 +5390,194 @@ async function downloadFile(content, fileName, mimeType) {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
+
+/* =========================================================================
+   IZVOZ QR NALEPK ZA REGALE IN POLICE SKLADIŠČA (PDF - 48 LOKACIJ)
+   ========================================================================= */
+window.exportWarehouseShelfQRPDF = async function() {
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    showToast('jsPDF knjižnica ni naložena.');
+    return;
+  }
+  if (typeof qrcode === 'undefined') {
+    showToast('QR knjižnica ni naložena.');
+    return;
+  }
+
+  showToast('Pripravljam PDF z QR nalepkami za 48 polic...');
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    // Seznam vseh 48 lokacij po tlorisu skladišča
+    const locations = [];
+
+    // 1. Osrednji dvostranski regali R1 do R6
+    for (let r = 1; r <= 6; r++) {
+      ['A', 'B'].forEach(side => {
+        const sideName = (side === 'A') ? 'Stran A (Sever / Zgoraj)' : 'Stran B (Jug / Spodaj)';
+        for (let s = 1; s <= 3; s++) {
+          const shelfName = (s === 1) ? 'Spodnja polica (P1)' : (s === 2) ? 'Srednja polica (P2)' : 'Zgornja polica (P3)';
+          locations.push({
+            code: `R${r}-${side}-P${s}`,
+            rack: `Regal ${r}`,
+            side: sideName,
+            shelf: shelfName,
+            category: 'Osrednji regal'
+          });
+        }
+      });
+    }
+
+    // 2. Stenski enojni regali ob kletki
+    const wallRacks = [
+      { id: 'SZ', name: 'Stena Zgoraj (Severna stena)' },
+      { id: 'SS', name: 'Stena Spodaj (Južna stena)' },
+      { id: 'SL1', name: 'Stena Levo - Nad vrati' },
+      { id: 'SL2', name: 'Stena Levo - Pod vrati' }
+    ];
+
+    wallRacks.forEach(w => {
+      for (let s = 1; s <= 3; s++) {
+        const shelfName = (s === 1) ? 'Spodnja polica (P1)' : (s === 2) ? 'Srednja polica (P2)' : 'Zgornja polica (P3)';
+        locations.push({
+          code: `${w.id}-P${s}`,
+          rack: w.name,
+          side: 'Enojni regal ob kletki',
+          shelf: shelfName,
+          category: 'Stenski regal'
+        });
+      }
+    });
+
+    // Helper za generiranje čiste PNG slike QR kode
+    function makeQRPng(text, size = 180) {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const count = qr.getModuleCount();
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#000000';
+      const cell = size / count;
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect(c * cell, r * cell, cell, cell);
+          }
+        }
+      }
+      return canvas.toDataURL('image/png');
+    }
+
+    // Postavitev: A4 (210 x 297 mm)
+    // 6 nalepk na stran: 2 stolpca x 3 vrstice
+    const cardW = 90;
+    const cardH = 82;
+    const marginX = 11;
+    const marginY = 16;
+    const gapX = 8;
+    const gapY = 8;
+    const cardsPerPage = 6;
+
+    locations.forEach((loc, index) => {
+      const posInPage = index % cardsPerPage;
+
+      if (posInPage === 0 && index > 0) {
+        doc.addPage();
+      }
+
+      const col = posInPage % 2;
+      const row = Math.floor(posInPage / 2);
+
+      const x = marginX + col * (cardW + gapX);
+      const y = marginY + row * (cardH + gapY);
+
+      // Okvir nalepke (siv rob)
+      doc.setDrawColor(180, 185, 195);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(x, y, cardW, cardH, 3, 3, 'S');
+
+      // Zgornji pas (glava nalepke)
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(x, y, cardW, 11, 3, 3, 'F');
+      doc.rect(x, y + 6, cardW, 5, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text('SKLADIŠČE • OZNAKA POLICE', x + cardW / 2, y + 7, { align: 'center' });
+
+      // QR koda
+      const qrPng = makeQRPng(`REGAL:${loc.code}`, 180);
+      const qrSize = 36;
+      const qrX = x + 5;
+      const qrY = y + 17;
+      doc.addImage(qrPng, 'PNG', qrX, qrY, qrSize, qrSize);
+
+      // Desna stran: Glavna šifra in podatki
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(15, 23, 42);
+      doc.text(loc.code, x + 44, y + 25);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(3, 105, 161);
+      doc.text(loc.rack, x + 44, y + 33);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(loc.side, x + 44, y + 39);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(loc.shelf, x + 44, y + 46);
+
+      // Tip regala
+      doc.setFillColor(241, 245, 249);
+      doc.roundedRect(x + 44, y + 50, 40, 5.5, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(loc.category, x + 46, y + 54);
+
+      // Spodnja črta in navodilo
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.2);
+      doc.line(x + 4, y + 66, x + cardW - 4, y + 66);
+
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6.2);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Kamera samodejno zazna QR in nastavi regal za prevzem', x + cardW / 2, y + 74, { align: 'center' });
+    });
+
+    // Glava dokumenta na prvi strani zgoraj
+    doc.setPage(1);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text('SKLADIŠČNI REGALI IN POLICE - TISK NALEPK (48 LOKACIJ)', 105, 9, { align: 'center' });
+
+    const fileName = `Skladisce_QR_Regali_${getDateStamp()}.pdf`;
+    await downloadFile(doc.output('blob'), fileName, 'application/pdf');
+    showToast('PDF z QR nalepkami uspešno prenesen.');
+  } catch (err) {
+    console.error('Napaka pri generiranju QR nalepk regala:', err);
+    showToast('Napaka pri generiranju PDF nalepk: ' + (err.message || err));
+  }
+};
+
 

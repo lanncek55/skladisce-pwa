@@ -103,6 +103,30 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        int action = event.getAction();
+        int keyCode = event.getKeyCode();
+        if (action == android.view.KeyEvent.ACTION_DOWN) {
+            if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().post(() -> {
+                        getBridge().getWebView().evaluateJavascript("if (window.handleHardwareVolumeKey) { window.handleHardwareVolumeKey('up'); }", null);
+                    });
+                    return true;
+                }
+            } else if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().post(() -> {
+                        getBridge().getWebView().evaluateJavascript("if (window.handleHardwareVolumeKey) { window.handleHardwareVolumeKey('down'); }", null);
+                    });
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     @CapacitorPlugin(name = "MLKitDirect")
     public static class MLKitDirectPlugin extends Plugin {
         @PluginMethod

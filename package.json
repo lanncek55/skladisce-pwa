@@ -24,6 +24,8 @@
     "@capacitor/camera": "^8.2.5",
     "@capacitor/cli": "^8.5.3",
     "@capacitor/core": "^8.5.3",
-    "jsbarcode": "^3.12.3"
+    "jsbarcode": "^3.12.3",
+    "qrcode": "^1.5.4",
+    "qrcode-generator": "^2.0.4"
   }
 }
