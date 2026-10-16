@@ -82,11 +82,20 @@ const WarehouseLabelParser = {
   },
 
   /**
-   * Glavna funkcija za analizo surovega OCR besedila
+   * Glavna AI funkcija za analizo etiket škatel in trgovskih računov
+   * Podpira strukturirane bloke Google ML Kita (blocks) ali surovo besedilo (rawText).
+   * 
+   * Značilnosti:
+   * 1. Stroga zaščita pred naključnimi 7-mestnimi številkami (zavrže izolirane številke brez skladiščnega konteksta)
+   * 2. Prostorska izolacija ene škatle (če sta v kadru 2 škatli, se podatki ne pomešajo, ampak se izbere tista bližje vizirju)
+   * 3. Neodvisnost od kota (podpira poljubno rotacijo znakov, ki jo zazna ML Kit)
+   * 
    * @param {string} rawText - Besedilo prebrano s škatle ali računa
+   * @param {Array} [blocks=null] - Strukturirani bloki teksta z bounding boxi iz ML Kita
+   * @param {Object} [options={}] - Dodatne možnosti (npr. knownSkus, imageCenter)
    * @returns {Object} Rezultat z artiklom, škatlo in količino ALI razčlenjen račun
    */
-  parse(rawText) {
+  parse(rawText, blocks = null, options = {}) {
     if (!rawText || typeof rawText !== 'string') {
       return {
         articleNumber: '',
@@ -104,77 +113,7 @@ const WarehouseLabelParser = {
       return receiptData;
     }
 
-    const lines = rawText
-      .split(/\r?\n/)
-      .map(l => l.trim())
-      .filter(l => l.length > 0);
-
-    let articleNumber = '';
-    let name = '';
-    let boxCurrent = 1;
-    let boxTotal = 1;
-    let quantityInBox = null;
-
-    let articleLineIdx = -1;
-
-    // Pomožna funkcija za čiščenje pogostih OCR zamenjav števk (O->0, I/l->1)
-    function sanitizeNum7(s) {
-      if (!s) return '';
-      return s.replace(/O/gi, '0').replace(/[Il]/g, '1');
-    }
-
-    // 1. ISKANJE ŠTEVILKE ARTIKLA (Prva 7-mestna številka)
-    // Primeri:
-    // "JYSK product no.: 3725150 / 88225001" -> 3725150
-    // "Art. no: 3651003 / 85823001" -> 3651003
-    // "3610115 - Pedestal LYNGVIG" -> 3610115
-    // "Article: 3759803" -> 3759803
-    // "Product no.: 3726157/93121001" -> 3726157
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const labelMatch = line.match(/(?:product\s*(?:no\.?|number)?|article|art\.?\s*(?:no\.?|st\.?|št\.?)?|artikel|item|sku|vare[\s.:]*nr)[\s.:]*([0-9OIl]{7})\b/i);
-      if (labelMatch) {
-        const cleaned = sanitizeNum7(labelMatch[1]);
-        if (/^[0-9]{7}$/.test(cleaned)) {
-          articleNumber = cleaned;
-          articleLineIdx = i;
-          break;
-        }
-      }
-    }
-
-    // Če nismo našli z oznako, poiščemo vzorec "7_števk / xxxxx" ali "7_števk - ime"
-    if (!articleNumber) {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const slashMatch = line.match(/\b([0-9OIl]{7})\s*[\/|\-]/);
-        if (slashMatch) {
-          const cleaned = sanitizeNum7(slashMatch[1]);
-          if (/^[0-9]{7}$/.test(cleaned)) {
-            articleNumber = cleaned;
-            articleLineIdx = i;
-            break;
-          }
-        }
-      }
-    }
-
-    // Fallback: katerakoli 7-mestna številka (pazimo, da ni order no z 10 števkami)
-    if (!articleNumber) {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/order|barcode|batch|ean|tel|datum/i.test(line)) continue;
-        const any7 = line.match(/\b([0-9]{7})\b/);
-        if (any7) {
-          articleNumber = any7[1];
-          articleLineIdx = i;
-          break;
-        }
-      }
-    }
-
-    // 2. ISKANJE IMENA ARTIKLA
-    // Vgrajen katalog znanih skladiščnih artiklov (iz etiket) kot takojšnja referenca
+    // Vgrajen referenčni katalog pogostih artiklov
     const knownCatalog = {
       '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 3, box: 'Box 1/1' },
       '3690514': { name: 'Dining chair ADSLEV beige/n.oak', pieces: 2, box: 'Box 1/1' },
@@ -186,10 +125,16 @@ const WarehouseLabelParser = {
       '3650189': { name: 'Pouffe AARS Dark Sand', pieces: 3, box: 'Box 1/1' },
       '3446278': { name: 'TM VINGAN 160x200cm', pieces: 1, box: 'Box 1/1' },
       '3610115': { name: 'Pedestal LYNGVIG Ø35 d.oak', pieces: 1, box: 'Box 1/1' },
-      '3726157': { name: 'JYSK Artikel 3726157', pieces: 1, box: 'Box 1/1' }
+      '3726157': { name: 'JYSK Artikel 3726157', pieces: 1, box: 'Box 1/1' },
+      '3618930': { name: 'Predalnik LIMFJORDEN 4 predali bela', pieces: 1, box: 'Box 1/1' },
+      '3670619': { name: 'DIVERSES', pieces: 1, box: 'Box 1/1' }
     };
 
-    // Pomožna funkcija za zaznavanje šuma ali dimenzij (npr. "al li Bes Poi 4 " fin," ali "Ø45/55/70")
+    function sanitizeNum7(s) {
+      if (!s) return '';
+      return s.replace(/O/gi, '0').replace(/[Il]/g, '1');
+    }
+
     function isNoisyOrDimensionLine(str) {
       if (!str || str.length < 3) return true;
       if (/["]/.test(str)) return true;
@@ -203,153 +148,310 @@ const WarehouseLabelParser = {
       return false;
     }
 
-    // A) Izrecna oznaka "product text" ali "product name"
-    for (const line of lines) {
-      const textMatch = line.match(/(?:product\s*text|article\s*name)[\s.:]+(.+)/i);
-      if (textMatch && textMatch[1].trim().length > 2 && !isNoisyOrDimensionLine(textMatch[1])) {
-        name = textMatch[1].trim();
-        break;
-      }
-    }
-
-    // B) Iskanje ključnih besed skladiščnega pohištva in izdelkov
-    if (!name) {
-      const furnitureKeywords = /mirror|chair|stol|miza|table|pouffe|pedestal|ulvik|sandager|fjellerup|larvik|vingan|vanse|aars|lyngvig|foam|pillow|vzglavnik|omara|polica/i;
-      for (const line of lines) {
-        if (furnitureKeywords.test(line) && !isNoisyOrDimensionLine(line)) {
-          name = line.replace(/^[0-9\s\-\:\.\/]+/, '').trim();
-          break;
-        }
-      }
-    }
-
-    // C) Pregled vrstice neposredno po številki artikla
-    if (!name && articleNumber && articleLineIdx !== -1) {
-      const artLine = lines[articleLineIdx];
-      const parts = artLine.split(/[\-\:]/);
-      if (parts.length > 1 && parts[1].trim().length > 3 && !isNoisyOrDimensionLine(parts[1])) {
-        name = parts.slice(1).join('-').trim();
-      } else if (articleLineIdx + 1 < lines.length) {
-        const candidate = lines[articleLineIdx + 1];
-        if (!isNoisyOrDimensionLine(candidate)) {
-          name = candidate;
-        }
-      }
-    }
-
-    // D) Če OCR vrne nerazumljivo besedilo, preveri katalog po 7-mestni kodi
-    if ((!name || isNoisyOrDimensionLine(name)) && articleNumber && knownCatalog[articleNumber]) {
-      name = knownCatalog[articleNumber].name;
-    }
-
-    if (name) {
-      name = name.replace(/^[\s\:\-\.\/]+/, '').trim();
-    }
-
-    // 3. ISKANJE PODATKOV O ŠKATLAH (Box X/Y ali Colli X/Y)
-    // Pomembno: Da ne prebere podatkov sosednje škatle na paleti, najprej iščemo v neposredni bližini najdene šifre artikla!
     const boxPattern = /\b(?:box|colli|karton|package|pkg)[\s.:]*([0-9]+)\s*(?:[\/|\\]|\b(?:of|von)\b)\s*([0-9]+)(?:[\s.:]+([0-9]+)\s*(?:pcs\.?|kom|kos)?)?/i;
 
-    const nearbyLines = [];
-    if (articleLineIdx !== -1) {
-      const start = Math.max(0, articleLineIdx - 2);
-      const end = Math.min(lines.length - 1, articleLineIdx + 4);
-      for (let i = start; i <= end; i++) nearbyLines.push(lines[i]);
-    }
+    // AI KANDIDATI ZA ETIKETO ŠKATLE
+    // Vsak kandidat predstavlja eno izolirano etiketo (preprečuje zlivanje sosednjih škatel na paleti)
+    const candidates = [];
 
-    // Najprej preveri bližnje vrstice iste škatle
-    for (const line of (nearbyLines.length > 0 ? nearbyLines : lines)) {
-      const boxMatch = line.match(boxPattern);
-      if (boxMatch) {
-        boxCurrent = parseInt(boxMatch[1], 10);
-        boxTotal = parseInt(boxMatch[2], 10);
-        if (boxMatch[3]) {
-          quantityInBox = parseInt(boxMatch[3], 10);
+    // A. Če imamo strukturirane bloke iz Google ML Kita
+    if (Array.isArray(blocks) && blocks.length > 0) {
+      for (const blk of blocks) {
+        const blkText = blk.rawValue || blk.text || '';
+        if (!blkText) continue;
+        const blkLines = blkText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (blkLines.length === 0) continue;
+
+        let center = null;
+        if (blk.boundingBox) {
+          const b = blk.boundingBox;
+          const left = b.left ?? b.x ?? 0;
+          const top = b.top ?? b.y ?? 0;
+          const width = b.width ?? (b.right ? b.right - left : 0);
+          const height = b.height ?? (b.bottom ? b.bottom - top : 0);
+          center = { x: left + width / 2, y: top + height / 2 };
         }
-        break;
+
+        candidates.push({
+          lines: blkLines,
+          fullText: blkText,
+          center
+        });
       }
     }
 
-    // Fallback: če v bližini nismo našli, preveri ostale vrstice
-    if (boxTotal === 1 && boxCurrent === 1 && nearbyLines.length > 0) {
-      for (const line of lines) {
-        const boxMatch = line.match(boxPattern);
-        if (boxMatch) {
-          boxCurrent = parseInt(boxMatch[1], 10);
-          boxTotal = parseInt(boxMatch[2], 10);
-          if (boxMatch[3]) {
-            quantityInBox = parseInt(boxMatch[3], 10);
-          }
-          break;
-        }
-      }
-    }
+    // B. Če ni blokov ali če noben blok ni samostojen, analiziramo vrstice s plavajočim oknom
+    const allLines = rawText
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
 
-    // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size / manjših škatel)
-    // A) Izrecna oznaka v eni vrstici npr. "Quantity: 4 pcs", "Colli Size 24", "QTY: 4", "Kosov: 4", "Menge: 4"
-    for (const line of lines) {
-      const qtyLabelMatch = line.match(/(?:quantity|colli\s*size|qty|menge|koli[cč]ina|kosov)[\s.:]*([0-9]+)\s*(?:pcs\.?|kom|kos)?/i);
-      if (qtyLabelMatch) {
-        quantityInBox = parseInt(qtyLabelMatch[1], 10);
-        break;
-      }
-    }
-
-    // B) Če je oznaka "Quantity:" in številka v dveh vrsticah (npr. dvostolpčna postavitev)
-    if (!quantityInBox) {
-      const fullText = lines.join(' ');
-      const multilineMatch = fullText.match(/(?:quantity|colli\s*size|qty|menge|koli[cč]ina|kosov)[\s.:]*([0-9]+)\s*(?:pcs\.?|kom|kos)?/i);
-      if (multilineMatch) {
-        quantityInBox = parseInt(multilineMatch[1], 10);
-      }
-    }
-
-    // C) Oznaka pakiranja tipa "3 pcs/pk", "4 pcs/pack", "4 kom/pak", "4 pcs / ctn", "4 pcs/box"
-    if (!quantityInBox) {
-      for (const line of lines) {
-        const pkMatch = line.match(/\b([0-9]+)\s*(?:pcs|kom|kos)\s*[\/|\\]\s*(?:pk|pack|karton|ctn|box|komplet)\b/i);
-        if (pkMatch) {
-          quantityInBox = parseInt(pkMatch[1], 10);
-          break;
+    if (candidates.length === 0) {
+      const anchorIndices = [];
+      for (let i = 0; i < allLines.length; i++) {
+        const line = allLines[i];
+        if (/(?:product|article|art\.?|artikel|item|sku|vare[\s.:]*nr)[\s.:]*[0-9OIl]{7}/i.test(line) ||
+            /\b[0-9OIl]{7}\s*[\/|\-]/i.test(line) ||
+            /\b(?:box|colli)[\s.:]*[0-9]+\s*[\/|\\]\s*[0-9]+/i.test(line)) {
+          anchorIndices.push(i);
         }
       }
+
+      if (anchorIndices.length === 0) {
+        candidates.push({
+          lines: allLines,
+          fullText: rawText,
+          center: null
+        });
+      } else {
+        for (const idx of anchorIndices) {
+          const start = Math.max(0, idx - 3);
+          const end = Math.min(allLines.length - 1, idx + 4);
+          const windowLines = allLines.slice(start, end + 1);
+          candidates.push({
+            lines: windowLines,
+            fullText: windowLines.join('\n'),
+            center: null
+          });
+        }
+      }
     }
 
-    // D) Samostojna vrstica z zgolj količino npr. "4 pcs" ali "12 pcs" ali "4 kom" (ki ni vrstica z imenom)
-    if (!quantityInBox) {
-      for (const line of lines) {
-        if (line !== name) {
-          const standalonePcsMatch = line.match(/^([0-9]+)\s*(?:pcs\.?|kom|kos)\b/i);
-          if (standalonePcsMatch) {
-            quantityInBox = parseInt(standalonePcsMatch[1], 10);
+    // AI TOČKOVANJE IN EVALVACIJA VSAKEGA KANDIDATA
+    // Strogo pravilo proti naključnim številkam:
+    // Izolirana 7-mestna številka BREZ oznake, brez JYSK kosa/katalog ujemanja ali Box konteksta ima oceno 0 in se ZAVRNE!
+    const evaluatedCandidates = [];
+
+    for (const cand of candidates) {
+      const cLines = cand.lines;
+      let sku = '';
+      let skuScore = 0;
+      let candArticleIdx = -1;
+
+      // 1. Iskanje SKU po nivojih zanesljivosti:
+      // Nivo 1 (+95): Izrecna oznaka (Product no, Art. no, Artikel, Item, SKU, Vare nr)
+      for (let i = 0; i < cLines.length; i++) {
+        const line = cLines[i];
+        const m = line.match(/(?:product\s*(?:no\.?|number)?|article|art\.?\s*(?:no\.?|st\.?|št\.?|nr\.?)?|artikel|item|sku|vare[\s.:]*nr|koda|šifra)[\s.:]*([0-9OIl]{7})\b/i);
+        if (m) {
+          const cleaned = sanitizeNum7(m[1]);
+          if (/^[0-9]{7}$/.test(cleaned)) {
+            sku = cleaned;
+            skuScore = 95;
+            candArticleIdx = i;
             break;
           }
         }
       }
+
+      // Nivo 2 (+90): Standardni JYSK vzorec "7 števk / 8 števk" (npr. 3725150 / 88225001)
+      if (!sku) {
+        for (let i = 0; i < cLines.length; i++) {
+          const line = cLines[i];
+          const slashM = line.match(/\b([0-9OIl]{7})\s*[\/|\\]\s*[0-9]{6,10}\b/);
+          if (slashM) {
+            const cleaned = sanitizeNum7(slashM[1]);
+            if (/^[0-9]{7}$/.test(cleaned)) {
+              sku = cleaned;
+              skuScore = 90;
+              candArticleIdx = i;
+              break;
+            }
+          }
+        }
+      }
+
+      // Nivo 3 (+85): 7 števk, ki se ujemajo z bazo skladišča ali znanim katalogom
+      if (!sku) {
+        for (let i = 0; i < cLines.length; i++) {
+          const line = cLines[i];
+          if (/order|barcode|batch|ean|tel|datum/i.test(line)) continue;
+          const all7 = line.match(/\b([0-9]{7})\b/g);
+          if (all7) {
+            for (const testNum of all7) {
+              if (knownCatalog[testNum] || options?.knownSkus?.has?.(testNum)) {
+                sku = testNum;
+                skuScore = 85;
+                candArticleIdx = i;
+                break;
+              }
+            }
+          }
+          if (sku) break;
+        }
+      }
+
+      // Nivo 4 (+75): 7 števk neposredno pred nazivom artikla (npr. "3610115 - Pedestal")
+      if (!sku) {
+        for (let i = 0; i < cLines.length; i++) {
+          const line = cLines[i];
+          const nameM = line.match(/\b([0-9OIl]{7})\s*[\-\–]\s*[A-Z][a-zA-Z]/);
+          if (nameM) {
+            const cleaned = sanitizeNum7(nameM[1]);
+            if (/^[0-9]{7}$/.test(cleaned)) {
+              sku = cleaned;
+              skuScore = 75;
+              candArticleIdx = i;
+              break;
+            }
+          }
+        }
+      }
+
+      // Nivo 5 (+50): 7 števk z jasnim kontekstom Box X/Y in količine v isti etiketi
+      if (!sku) {
+        const hasBoxNearby = cLines.some(l => boxPattern.test(l));
+        const hasQtyNearby = cLines.some(l => /(?:quantity|colli\s*size|qty|pcs|kom|kos)/i.test(l));
+        if (hasBoxNearby || hasQtyNearby) {
+          for (let i = 0; i < cLines.length; i++) {
+            const line = cLines[i];
+            if (/order|barcode|batch|ean|tel|datum|phone|gsm/i.test(line)) continue;
+            const any7 = line.match(/\b([0-9]{7})\b/);
+            if (any7) {
+              sku = any7[1];
+              skuScore = 50;
+              candArticleIdx = i;
+              break;
+            }
+          }
+        }
+      }
+
+      // Če SKU nima zadostnega skladiščnega potrdila (je npr. le naključna številka), ga zavrnemo!
+      if (!sku || skuScore < 50) {
+        continue;
+      }
+
+      // 2. Podatki o škatli (Box X/Y) - IŠČEMO IZKLJUČNO ZNOTRAJ TE ETIKETE
+      let bCurrent = 1;
+      let bTotal = 1;
+      let qInBox = null;
+      let boxScore = 0;
+
+      for (const line of cLines) {
+        const bMatch = line.match(boxPattern);
+        if (bMatch) {
+          bCurrent = parseInt(bMatch[1], 10) || 1;
+          bTotal = parseInt(bMatch[2], 10) || 1;
+          if (bMatch[3]) {
+            qInBox = parseInt(bMatch[3], 10);
+          }
+          boxScore = 30;
+          break;
+        }
+      }
+
+      // 3. Količina kosov v škatli (izrecne oznake)
+      if (!qInBox) {
+        for (const line of cLines) {
+          const qMatch = line.match(/(?:quantity|colli\s*size|qty|menge|koli[cč]ina|kosov)[\s.:]*([0-9]+)\s*(?:pcs\.?|kom|kos)?/i);
+          if (qMatch) {
+            qInBox = parseInt(qMatch[1], 10);
+            break;
+          }
+        }
+      }
+      if (!qInBox) {
+        for (const line of cLines) {
+          const pkMatch = line.match(/\b([0-9]+)\s*(?:pcs|kom|kos)\s*[\/|\\]\s*(?:pk|pack|karton|ctn|box|komplet)\b/i);
+          if (pkMatch) {
+            qInBox = parseInt(pkMatch[1], 10);
+            break;
+          }
+        }
+      }
+      if (!qInBox) {
+        for (const line of cLines) {
+          const standMatch = line.match(/^([0-9]+)\s*(?:pcs\.?|kom|kos)\b/i);
+          if (standMatch) {
+            qInBox = parseInt(standMatch[1], 10);
+            break;
+          }
+        }
+      }
+      if (!qInBox && knownCatalog[sku]?.pieces) {
+        qInBox = knownCatalog[sku].pieces;
+      }
+      if (!qInBox || isNaN(qInBox) || qInBox <= 0) {
+        qInBox = 1;
+      }
+
+      // 4. Naziv artikla
+      let prodName = '';
+      for (const line of cLines) {
+        const textMatch = line.match(/(?:product\s*text|article\s*name)[\s.:]+(.+)/i);
+        if (textMatch && textMatch[1].trim().length > 2 && !isNoisyOrDimensionLine(textMatch[1])) {
+          prodName = textMatch[1].trim();
+          break;
+        }
+      }
+      if (!prodName) {
+        const furnitureKeywords = /mirror|chair|stol|miza|table|pouffe|pedestal|ulvik|sandager|fjellerup|larvik|vingan|vanse|aars|lyngvig|foam|pillow|vzglavnik|omara|polica|predalnik/i;
+        for (const line of cLines) {
+          if (furnitureKeywords.test(line) && !isNoisyOrDimensionLine(line)) {
+            prodName = line.replace(/^[0-9\s\-\:\.\/]+/, '').trim();
+            break;
+          }
+        }
+      }
+      if (!prodName && candArticleIdx !== -1 && candArticleIdx + 1 < cLines.length) {
+        const nextLine = cLines[candArticleIdx + 1];
+        if (!isNoisyOrDimensionLine(nextLine)) {
+          prodName = nextLine;
+        }
+      }
+      if (!prodName && knownCatalog[sku]) {
+        prodName = knownCatalog[sku].name;
+      }
+      if (!prodName) {
+        prodName = `Artikel ${sku}`;
+      }
+
+      // 5. Prostorska bližina centru (če imamo koordinate blokov iz ML Kita)
+      let distPenalty = 0;
+      if (cand.center && options?.imageCenter) {
+        const dx = cand.center.x - options.imageCenter.x;
+        const dy = cand.center.y - options.imageCenter.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = Math.max(1, options.imageCenter.x);
+        distPenalty = Math.min(25, (dist / maxDist) * 25);
+      }
+
+      const totalScore = skuScore + boxScore - distPenalty;
+
+      evaluatedCandidates.push({
+        articleNumber: sku,
+        name: prodName,
+        boxCurrent: bCurrent,
+        boxTotal: bTotal,
+        quantityInBox: qInBox,
+        score: totalScore,
+        rawText: cand.fullText
+      });
     }
 
-    // E) Preveri katalog znanih artiklov, če je šifra znana
-    if ((!quantityInBox || quantityInBox === 1) && articleNumber && knownCatalog[articleNumber] && knownCatalog[articleNumber].pieces) {
-      quantityInBox = knownCatalog[articleNumber].pieces;
+    if (evaluatedCandidates.length === 0) {
+      return {
+        articleNumber: '',
+        name: '',
+        boxCurrent: 1,
+        boxTotal: 1,
+        quantityInBox: 1,
+        rawText
+      };
     }
 
-    // Če količina še vedno ni bila najdena, je privzeto 1 kos na škatlo
-    if (quantityInBox === null || isNaN(quantityInBox) || quantityInBox <= 0) {
-      quantityInBox = 1;
-    }
-
-    // Lep format imena
-    if (!name && articleNumber) {
-      name = `Artikel ${articleNumber}`;
-    }
+    // Izberi zmagovalnega kandidata z najvišjo oceno (najbolj zanesljiva etiketa najbližje vizirju)
+    evaluatedCandidates.sort((a, b) => b.score - a.score);
+    const best = evaluatedCandidates[0];
 
     return {
-      articleNumber,
-      name,
-      boxCurrent,
-      boxTotal,
-      quantityInBox,
-      rawText
+      articleNumber: best.articleNumber,
+      name: best.name,
+      boxCurrent: best.boxCurrent,
+      boxTotal: best.boxTotal,
+      quantityInBox: best.quantityInBox,
+      rawText: best.rawText
     };
   }
 };

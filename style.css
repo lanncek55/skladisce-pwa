@@ -446,7 +446,7 @@ body {
   position: relative;
   width: 100%;
   max-width: 420px;
-  height: 230px;
+  height: 250px;
   background: #000;
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -472,12 +472,12 @@ body {
 }
 
 .scan-frame.box-frame {
-  width: 260px;
-  height: 140px;
+  width: 290px;
+  height: 165px;
   border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: var(--radius-md);
   position: relative;
-  box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;

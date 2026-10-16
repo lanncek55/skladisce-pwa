@@ -34,13 +34,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 6c. Priprava brezžične BLE sinhronizacije
   setupBLESync();
 
-  // 7. Priprava optičnega čitalnika škatel (OCR)
+  // 7. Priprava optičnega čitalnika škatel (Google ML Kit)
   setupBoxOCRScanner();
 
-  // 8. Takojšnje prednalaganje nevronskega OCR pospeševalnika v ozadju
-  initOCRWorker();
-
-  // 9. Naloži podatke iz IndexedDB (le če je čisto prvi zagon in še ni bilo inicializirano ali izbrisano)
+  // 8. Naloži podatke iz IndexedDB (le če je čisto prvi zagon in še ni bilo inicializirano ali izbrisano)
   const isDemoSeeded = localStorage.getItem('skladisce_demo_seeded');
   const initialItems = await DB.getAllItems();
   if ((!initialItems || initialItems.length === 0) && !isDemoSeeded) {
@@ -1973,14 +1970,23 @@ window.deleteHistoricalReceivingSession = function(index) {
 /* =========================================================================
    5. OPTIČNI ČITALNIK ŠKATEL (OCR)
    ========================================================================= */
-let ocrWorker = null;
-let ocrWorkerPromise = null;
 let currentScannedBox = null;
 let currentMultiplier = 1;
 let lastUsedShelf = '';
 try {
   lastUsedShelf = localStorage.getItem('skladisce_last_shelf') || '';
 } catch (e) {}
+
+// Pomožna funkcija za pridobitev vseh znanih šifer artiklov v skladišču (za takojšnjo potrditev OCR)
+function getKnownSKUsSet() {
+  const skus = new Set();
+  if (Array.isArray(cachedItems)) {
+    for (const it of cachedItems) {
+      if (it && it.sku) skus.add(String(it.sku).trim());
+    }
+  }
+  return skus;
+}
 
 // Nastavitve za samodejno branje v realnem času
 let isAutoScanEnabled = true;
@@ -1989,67 +1995,16 @@ let isProcessingFrame = false;
 let lastDetectedSKU = null;
 let lastDetectedBoxKey = null;
 let lastDetectedTime = 0;
-let autoScanAngleCycle = 0; // Izmenično 0° in 180° za narobe obrnjene škatle
+let autoScanAngleCycle = 0; // AI cikel kotov: 0°, 90°, 0°, 270° (brez obračanja telefona)
 
-// Strojni TextDetector
+// Strojni TextDetector (Android WebView / Chrome)
 let nativeTextDetector = null;
 if (typeof window !== 'undefined' && 'TextDetector' in window) {
   try {
     nativeTextDetector = new window.TextDetector();
   } catch (e) {
-    console.warn('TextDetector ni bilo mogoče inicializirati:', e);
+    console.warn('TextDetector ni na voljo:', e);
   }
-}
-
-/**
- * Predhodno nalaganje lokalnega OCR modela
- */
-async function initOCRWorker() {
-  if (ocrWorkerPromise) return ocrWorkerPromise;
-
-  ocrWorkerPromise = (async () => {
-    try {
-      if (typeof Tesseract === 'undefined') {
-        console.warn('Tesseract knjižnica še ni na voljo.');
-        return null;
-      }
-
-      const worker = await Tesseract.createWorker('eng', 1, {
-        workerPath: './worker.min.js',
-        corePath: './tesseract-core-simd-lstm.wasm.js',
-        langPath: './',
-        gzip: true,
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            const pct = Math.round((m.progress || 0) * 100);
-            const textEl = document.getElementById('ocrLoadingText');
-            if (textEl) textEl.textContent = `Obdelava slike: ${pct}%`;
-          }
-        }
-      });
-
-      await worker.setParameters({
-        tessedit_pageseg_mode: '6', // SINGLE_BLOCK (območje vizirja)
-        load_system_dawg: '0',
-        load_freq_dawg: '0',
-        load_unambig_dawg: '0',
-        load_punc_dawg: '0',
-        load_number_dawg: '0',
-        load_bigram_dawg: '0',
-        bidi_debug: '0',
-        tessedit_enable_doc_dict: '0',
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/:.-xX,()# '
-      });
-
-      ocrWorker = worker;
-      return worker;
-    } catch (err) {
-      console.warn('Inicializacija OCR modela:', err);
-      return null;
-    }
-  })();
-
-  return ocrWorkerPromise;
 }
 
 /**
@@ -2152,7 +2107,7 @@ async function triggerNativeMLKitScan() {
     const overlay = document.getElementById('ocrLoadingOverlay');
     const loadingText = document.getElementById('ocrLoadingText');
     if (overlay) overlay.style.display = 'flex';
-    if (loadingText) loadingText.textContent = 'Obdelava slike...';
+    if (loadingText) loadingText.textContent = 'Obdelava slike z AI...';
 
     const result = await plugins.TextRecognition.processImage({
       path: photo.path
@@ -2160,10 +2115,17 @@ async function triggerNativeMLKitScan() {
 
     if (overlay) overlay.style.display = 'none';
 
-    const parsed = WarehouseLabelParser.parse(result.text || '');
-    playSuccessBeep();
-    triggerDetectionFlash();
-    await handleBoxScanResult(parsed);
+    const parsed = WarehouseLabelParser.parse(result.text || '', result.blocks || null, {
+      knownSkus: getKnownSKUsSet()
+    });
+
+    if (parsed && (parsed.articleNumber || parsed.isReceipt)) {
+      playSuccessBeep();
+      triggerDetectionFlash();
+      await handleBoxScanResult(parsed);
+    } else {
+      showToast('Na posnetku ni bilo prepoznane veljavne skladiščne etikete.');
+    }
 
   } catch (err) {
     const overlay = document.getElementById('ocrLoadingOverlay');
@@ -2196,7 +2158,7 @@ async function triggerNativeMLKitGallery() {
     const overlay = document.getElementById('ocrLoadingOverlay');
     const loadingText = document.getElementById('ocrLoadingText');
     if (overlay) overlay.style.display = 'flex';
-    if (loadingText) loadingText.textContent = 'Obdelava slike...';
+    if (loadingText) loadingText.textContent = 'Obdelava slike z AI...';
 
     const result = await plugins.TextRecognition.processImage({
       path: photo.path
@@ -2204,10 +2166,17 @@ async function triggerNativeMLKitGallery() {
 
     if (overlay) overlay.style.display = 'none';
 
-    const parsed = WarehouseLabelParser.parse(result.text || '');
-    playSuccessBeep();
-    triggerDetectionFlash();
-    await handleBoxScanResult(parsed);
+    const parsed = WarehouseLabelParser.parse(result.text || '', result.blocks || null, {
+      knownSkus: getKnownSKUsSet()
+    });
+
+    if (parsed && (parsed.articleNumber || parsed.isReceipt)) {
+      playSuccessBeep();
+      triggerDetectionFlash();
+      await handleBoxScanResult(parsed);
+    } else {
+      showToast('Na sliki ni bilo prepoznane veljavne skladiščne etikete.');
+    }
 
   } catch (err) {
     const overlay = document.getElementById('ocrLoadingOverlay');
@@ -2428,54 +2397,29 @@ async function processAutoScanFrame(video) {
 
     if (liveBadge) liveBadge.classList.add('analyzing');
 
-    // 2. Izmenično testiramo 0° in 180° (nikoli obeh v isti sličici!)
-    let canvasToTest = frameCanvas;
-    if (autoScanAngleCycle === 1) {
-      canvasToTest = rotateCanvas(frameCanvas, 180);
-    }
-    autoScanAngleCycle = (autoScanAngleCycle + 1) % 2;
+    // 2. AI Cikel kotov: [0°, 90°, 0°, 270°]
+    // Omogoča takojšnje prepoznavanje ležečih in pokončnih etiket brez obračanja telefona v roki!
+    const scanAngles = [0, 90, 0, 270];
+    const currentAngle = scanAngles[autoScanAngleCycle % scanAngles.length];
+    autoScanAngleCycle = (autoScanAngleCycle + 1) % scanAngles.length;
 
-    // A. Če tečemo v Capacitor nativni Android aplikaciji: uporabi Google ML Kit (15-20ms!)
-    if (isCapacitorNative() && window.Capacitor?.Plugins?.MLKitDirect) {
-      try {
-        const base64 = canvasToTest.toDataURL('image/jpeg', 0.82);
-        const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
-        if (res && res.text) {
-          const p = WarehouseLabelParser.parse(res.text);
-          if (p && p.articleNumber) {
-            parsed = p;
-          }
-        }
-      } catch (e) {
-        console.warn('MLKitDirect auto-scan napaka:', e);
-      }
-    }
+    let canvasToTest = (currentAngle === 0) ? frameCanvas : rotateCanvas(frameCanvas, currentAngle);
 
-    // B. Strojni TextDetector v brskalniku
-    if (!parsed && nativeTextDetector) {
+    // Strojni TextDetector v brskalniku / Android WebView
+    if (nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvasToTest);
         if (blocks && blocks.length > 0) {
           const fullText = blocks.map(b => b.rawValue).join('\n');
-          const p = WarehouseLabelParser.parse(fullText);
+          const p = WarehouseLabelParser.parse(fullText, blocks, {
+            knownSkus: getKnownSKUsSet(),
+            imageCenter: { x: canvasToTest.width / 2, y: canvasToTest.height / 2 }
+          });
           if (p && p.articleNumber) {
             parsed = p;
           }
         }
       } catch (e) {}
-    }
-
-    // C. Lokalni WASM-SIMD model (zagnan samo v brskalniku, ko ni native aplikacije)
-    if (!parsed && !isCapacitorNative()) {
-      let worker = ocrWorker;
-      if (!worker) {
-        worker = await initOCRWorker();
-      }
-      if (worker) {
-        const ret = await worker.recognize(canvasToTest, {}, { text: true, blocks: false, hocr: false, tsv: false });
-        const text = ret?.data?.text || '';
-        parsed = WarehouseLabelParser.parse(text);
-      }
     }
 
     // 3. Če je artikel najden, sproži prepoznavo!
@@ -2555,10 +2499,10 @@ function getCroppedCanvasFromVideo(video, targetWidth = 1000) {
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
 
-  // Tesnejši izrez (52% širine, 28% višine) natančno ustreza vizirju
-  // s tem preprečimo, da bi kamera zajela sosednjo škatlo na paleti/regalu
-  const cropW = Math.round(vw * 0.52);
-  const cropH = Math.round(vh * 0.28);
+  // Udoben naraven izrez (76% širine, 46% višine)
+  // AI razvrščanje v ocr-parser.js samo poskrbi za natančno izolacijo škatle na sredini!
+  const cropW = Math.round(vw * 0.76);
+  const cropH = Math.round(vh * 0.46);
   const cropX = Math.round((vw - cropW) / 2);
   const cropY = Math.round((vh - cropH) / 2);
 
@@ -2596,19 +2540,16 @@ function preprocessAndCheckContrast(canvas, ctx) {
     }
 
     const contrast = maxLum - minLum;
-    // Če je kontrast premajhen (enoličen prazen karton ali tema), preskoči OCR
     if (contrast < 35) {
       return false;
     }
 
     const range = contrast || 1;
 
-    // Zvezna izravnava svetlobnih nivojev (Auto-Levels)
     for (let i = 0; i < d.length; i += 4) {
       const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
       const normalized = Math.min(255, Math.max(0, ((gray - minLum) / range) * 255));
       
-      // Rahlo nelinearno poudarjanje temnega tiska (črnila) proti ozadju kartona
       const enhanced = (normalized < 130)
         ? Math.pow(normalized / 130, 1.2) * 130
         : normalized;
@@ -2626,49 +2567,26 @@ function preprocessAndCheckContrast(canvas, ctx) {
 }
 
 /**
- * Ročna funkcija za zagon OCR in razčlenitev podatkov o škatli
+ * Obdelava zajete slike prek strojnega TextDetectorja
  */
 async function processImageWithOCR(canvas) {
   const overlay = document.getElementById('ocrLoadingOverlay');
   const loadingText = document.getElementById('ocrLoadingText');
-  overlay.style.display = 'flex';
-  loadingText.textContent = 'Obdelava slike...';
+  if (overlay) overlay.style.display = 'flex';
+  if (loadingText) loadingText.textContent = 'Obdelava slike z AI...';
 
   try {
     let parsed = null;
 
-    // A. Če tečemo v Capacitor z native OCR
-    if (isCapacitorNative() && window.Capacitor?.Plugins?.MLKitDirect) {
-      try {
-        loadingText.textContent = 'Obdelava slike...';
-        const base64 = canvas.toDataURL('image/jpeg', 0.90);
-        const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
-        if (res && res.text) {
-          parsed = WarehouseLabelParser.parse(res.text);
-        }
-        if (!parsed || (!parsed.articleNumber && !parsed.isReceipt)) {
-          const rot180 = rotateCanvas(canvas, 180);
-          const base64_180 = rot180.toDataURL('image/jpeg', 0.90);
-          const res180 = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64: base64_180 });
-          if (res180 && res180.text) {
-            const p180 = WarehouseLabelParser.parse(res180.text);
-            if (p180 && (p180.articleNumber || p180.isReceipt)) {
-              parsed = p180;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('MLKitDirect napaka:', e);
-      }
-    }
-
-    // B. Poskusi s strojnim TextDetector v brskalniku
-    if (!parsed && nativeTextDetector) {
+    if (nativeTextDetector) {
       try {
         const blocks = await nativeTextDetector.detect(canvas);
         if (blocks && blocks.length > 0) {
           const fullText = blocks.map(b => b.rawValue).join('\n');
-          const p = WarehouseLabelParser.parse(fullText);
+          const p = WarehouseLabelParser.parse(fullText, blocks, {
+            knownSkus: getKnownSKUsSet(),
+            imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
+          });
           if (p && (p.articleNumber || p.isReceipt)) {
             parsed = p;
           }
@@ -2676,42 +2594,19 @@ async function processImageWithOCR(canvas) {
       } catch (e) {}
     }
 
-    // C. Poskusi z lokalnim OCR modelom
-    if (!parsed) {
-      let worker = ocrWorker;
-      if (!worker) {
-        loadingText.textContent = 'Priprava čitalnika...';
-        worker = await initOCRWorker();
-      }
-
-      if (!worker) {
-        throw new Error('OCR model ni na voljo.');
-      }
-
-      const ret = await worker.recognize(canvas, {}, { text: true, blocks: false, hocr: false, tsv: false });
-      parsed = WarehouseLabelParser.parse(ret.data.text || '');
-
-      // Če ne najde šifre ali računa na 0°, preveri še 180°
-      if (!parsed.articleNumber && !parsed.isReceipt) {
-        loadingText.textContent = 'Preverjanje obrnjene slike...';
-        const rotated180 = rotateCanvas(canvas, 180);
-        const ret180 = await worker.recognize(rotated180, {}, { text: true, blocks: false, hocr: false, tsv: false });
-        const parsed180 = WarehouseLabelParser.parse(ret180.data.text || '');
-        if (parsed180.articleNumber || parsed180.isReceipt) {
-          parsed = parsed180;
-        }
-      }
+    if (parsed && (parsed.articleNumber || parsed.isReceipt)) {
+      playSuccessBeep();
+      triggerDetectionFlash();
+      await handleBoxScanResult(parsed);
+    } else {
+      showToast('Na sliki ni bilo zaznane veljavne skladiščne etikete.');
     }
-
-    playSuccessBeep();
-    triggerDetectionFlash();
-    await handleBoxScanResult(parsed);
 
   } catch (err) {
     console.error('Napaka pri OCR prepoznavi:', err);
-    showToast('Napaka pri branju škatle. Poskusite ponovno.');
+    showToast('Napaka pri branju slike.');
   } finally {
-    overlay.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
   }
 }
 
