@@ -409,6 +409,9 @@ function setupModals() {
   btnOpenAddModal.addEventListener('click', () => {
     formItem.reset();
     document.getElementById('itemId').value = '';
+    if (lastUsedShelf) {
+      document.getElementById('itemLocation').value = lastUsedShelf;
+    }
     document.getElementById('modalItemTitle').textContent = 'Nov artikel';
     btnDeleteItem.style.display = 'none';
     renderModalBoxInputs(null);
@@ -1974,6 +1977,10 @@ let ocrWorker = null;
 let ocrWorkerPromise = null;
 let currentScannedBox = null;
 let currentMultiplier = 1;
+let lastUsedShelf = '';
+try {
+  lastUsedShelf = localStorage.getItem('skladisce_last_shelf') || '';
+} catch (e) {}
 
 // Nastavitve za samodejno branje v realnem času
 let isAutoScanEnabled = true;
@@ -3121,11 +3128,15 @@ function renderBoxResultCard(existingItem) {
   const boxTotal = Math.max(1, parsed.boxTotal || (existingItem ? existingItem.boxTotal : 1));
   const boxInfo = `Box ${boxNum}/${boxTotal}`;
 
-  let currentBoxLoc = (existingItem && existingItem.boxes && existingItem.boxes[boxNum]) 
+  const existingBoxLoc = (existingItem && existingItem.boxes && existingItem.boxes[boxNum]) 
     ? existingItem.boxes[boxNum].location 
     : (existingItem ? existingItem.location : '');
 
-  // 1. PAMETNO USMERJANJE NA ISTI REGAL:
+  // 1. Samodejno prekopiraj regal prejšnjega artikla:
+  // Če je bil predhodno že vnesen/uporabljen regal (lastUsedShelf), ga samodejno prekopiramo v ta artikel.
+  let currentBoxLoc = lastUsedShelf || existingBoxLoc || '';
+
+  // 2. PAMETNO USMERJANJE NA ISTI REGAL:
   let smartShelfHintHtml = '';
   let suggestedShelf = '';
   let suggestedReason = '';
@@ -3166,7 +3177,7 @@ function renderBoxResultCard(existingItem) {
         </div>
       `;
 
-      // Če ta škatla še nima določene lokacije ali je v Prevzemnem območju, avtomatsko predlagamo ta regal
+      // Če artikel še nima določene lokacije ali ni prejšnjega regala, predlagamo ta regal
       if (!currentBoxLoc || currentBoxLoc === 'Prevzemno območje' || currentBoxLoc === 'Brez lokacije') {
         currentBoxLoc = suggestedShelf;
       }
@@ -3252,7 +3263,17 @@ function renderBoxResultCard(existingItem) {
         </span>
         <span style="font-size: 0.7rem; color: var(--text-muted);">regal / polica</span>
       </div>
-      <input type="text" id="boxResultLocationInput" class="form-control" style="padding: 7px 10px; font-weight: 600; font-size: 0.95rem; background: rgba(0,0,0,0.35); border-color: rgba(56, 189, 248, 0.4);" placeholder="npr. Regal A-01" value="${escapeHtml(currentBoxLoc || '')}">
+      <input type="text" id="boxResultLocationInput" class="form-control" style="padding: 7px 10px; font-weight: 600; font-size: 0.95rem; background: rgba(0,0,0,0.35); border-color: rgba(56, 189, 248, 0.4);" placeholder="npr. Regal A-01" value="${escapeHtml(currentBoxLoc || '')}" oninput="updateLastUsedShelf(this.value)">
+      ${lastUsedShelf ? `
+        <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 4px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+          <span>Prekopiran regal prejšnjega artikla: <strong style="color: #38bdf8;">${escapeHtml(lastUsedShelf)}</strong></span>
+          ${(existingBoxLoc && existingBoxLoc !== lastUsedShelf && existingBoxLoc !== 'Prevzemno območje' && existingBoxLoc !== 'Brez lokacije') ? `
+            <button type="button" class="btn-sm" onclick="applySuggestedShelf('${escapeHtml(existingBoxLoc)}')" style="padding: 2px 7px; font-size: 0.7rem; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #cbd5e1; border-radius: 4px; cursor: pointer;">
+              Uporabi obstoječi regal artikla (${escapeHtml(existingBoxLoc)})
+            </button>
+          ` : ''}
+        </div>
+      ` : ''}
     </div>
 
     ${boxBreakdownHtml}
@@ -3314,7 +3335,17 @@ window.applySuggestedShelf = function(shelf) {
   const input = document.getElementById('boxResultLocationInput');
   if (input) {
     input.value = shelf;
-    showToast(`Izbran priporočeni regal: ${shelf}`);
+    lastUsedShelf = shelf;
+    try { localStorage.setItem('skladisce_last_shelf', shelf); } catch(e){}
+    showToast(`Izbran regal: ${shelf}`);
+  }
+};
+
+window.updateLastUsedShelf = function(val) {
+  const clean = String(val || '').trim();
+  if (clean) {
+    lastUsedShelf = clean;
+    try { localStorage.setItem('skladisce_last_shelf', clean); } catch(e){}
   }
 };
 
@@ -3391,6 +3422,10 @@ window.executeBoxStockChange = async function(direction) {
 
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
   const boxLocation = document.getElementById('boxResultLocationInput')?.value?.trim() || '';
+  if (boxLocation) {
+    lastUsedShelf = boxLocation;
+    try { localStorage.setItem('skladisce_last_shelf', boxLocation); } catch(e){}
+  }
   const boxNum = currentScannedBox.boxCurrent || 1;
   const boxTotal = Math.max(1, currentScannedBox.boxTotal || 1);
 
@@ -3451,6 +3486,7 @@ window.openAddFromScannedBox = function() {
   if (!currentScannedBox) return;
 
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || '';
+  const chosenLoc = document.getElementById('boxResultLocationInput')?.value?.trim() || lastUsedShelf || '';
   const piecesPerBox = Math.max(1, parseInt(document.getElementById('boxPiecesPerBoxInput')?.value, 10) || currentScannedBox.quantityInBox || 1);
   const boxCount = Math.max(1, parseInt(document.getElementById('boxMultiplierInput')?.value, 10) || currentMultiplier || 1);
   const totalAmount = piecesPerBox * boxCount;
@@ -3461,6 +3497,7 @@ window.openAddFromScannedBox = function() {
   document.getElementById('itemId').value = '';
   document.getElementById('itemSku').value = currentScannedBox.articleNumber || '';
   document.getElementById('itemName').value = chosenName;
+  document.getElementById('itemLocation').value = chosenLoc;
   document.getElementById('itemBoxInfo').value = `Box ${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}`;
   document.getElementById('itemQuantity').value = totalAmount;
   document.getElementById('modalItemTitle').textContent = 'Nov artikel iz škatle';
