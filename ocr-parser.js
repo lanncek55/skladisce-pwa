@@ -159,7 +159,7 @@ const WarehouseLabelParser = {
     // 2. ISKANJE IMENA ARTIKLA
     // Vgrajen katalog znanih skladiščnih artiklov (iz etiket) kot takojšnja referenca
     const knownCatalog = {
-      '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 1, box: 'Box 1/1' },
+      '3651003': { name: 'Mirror SANDAGER 3 pcs/pk oak', pieces: 3, box: 'Box 1/1' },
       '3690514': { name: 'Dining chair ADSLEV beige/n.oak', pieces: 2, box: 'Box 1/1' },
       '3690565': { name: 'Mirror BALSLEV 35x127 w.oak', pieces: 4, box: 'Box 1/1' },
       '3725150': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
@@ -258,10 +258,10 @@ const WarehouseLabelParser = {
       }
     }
 
-    // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size)
-    // A) Izrecna oznaka v eni vrstici npr. "Quantity: 4 pcs", "Colli Size 24", "Quantity: 1"
+    // 4. KOLIČINA KOSOV V ŠKATLI (Quantity / Colli size / manjših škatel)
+    // A) Izrecna oznaka v eni vrstici npr. "Quantity: 4 pcs", "Colli Size 24", "QTY: 4", "Kosov: 4", "Menge: 4"
     for (const line of lines) {
-      const qtyLabelMatch = line.match(/(?:quantity|colli\s*size)[\s.:]*([0-9]+)\s*(?:pcs\.?)?/i);
+      const qtyLabelMatch = line.match(/(?:quantity|colli\s*size|qty|menge|koli[cč]ina|kosov)[\s.:]*([0-9]+)\s*(?:pcs\.?|kom|kos)?/i);
       if (qtyLabelMatch) {
         quantityInBox = parseInt(qtyLabelMatch[1], 10);
         break;
@@ -271,17 +271,28 @@ const WarehouseLabelParser = {
     // B) Če je oznaka "Quantity:" in številka v dveh vrsticah (npr. dvostolpčna postavitev)
     if (!quantityInBox) {
       const fullText = lines.join(' ');
-      const multilineMatch = fullText.match(/(?:quantity|colli\s*size)[\s.:]*([0-9]+)\s*(?:pcs\.?)?/i);
+      const multilineMatch = fullText.match(/(?:quantity|colli\s*size|qty|menge|koli[cč]ina|kosov)[\s.:]*([0-9]+)\s*(?:pcs\.?|kom|kos)?/i);
       if (multilineMatch) {
         quantityInBox = parseInt(multilineMatch[1], 10);
       }
     }
 
-    // C) Samostojna vrstica z zgolj količino npr. "4 pcs" ali "12 pcs" (ki ni vrstica z imenom)
+    // C) Oznaka pakiranja tipa "3 pcs/pk", "4 pcs/pack", "4 kom/pak", "4 pcs / ctn", "4 pcs/box"
+    if (!quantityInBox) {
+      for (const line of lines) {
+        const pkMatch = line.match(/\b([0-9]+)\s*(?:pcs|kom|kos)\s*[\/|\\]\s*(?:pk|pack|karton|ctn|box|komplet)\b/i);
+        if (pkMatch) {
+          quantityInBox = parseInt(pkMatch[1], 10);
+          break;
+        }
+      }
+    }
+
+    // D) Samostojna vrstica z zgolj količino npr. "4 pcs" ali "12 pcs" ali "4 kom" (ki ni vrstica z imenom)
     if (!quantityInBox) {
       for (const line of lines) {
         if (line !== name) {
-          const standalonePcsMatch = line.match(/^([0-9]+)\s*(?:pcs\.?|kom)\b/i);
+          const standalonePcsMatch = line.match(/^([0-9]+)\s*(?:pcs\.?|kom|kos)\b/i);
           if (standalonePcsMatch) {
             quantityInBox = parseInt(standalonePcsMatch[1], 10);
             break;
@@ -290,7 +301,7 @@ const WarehouseLabelParser = {
       }
     }
 
-    // D) Preveri katalog znanih artiklov, če je šifra znana
+    // E) Preveri katalog znanih artiklov, če je šifra znana
     if ((!quantityInBox || quantityInBox === 1) && articleNumber && knownCatalog[articleNumber] && knownCatalog[articleNumber].pieces) {
       quantityInBox = knownCatalog[articleNumber].pieces;
     }

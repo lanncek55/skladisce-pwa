@@ -3230,9 +3230,16 @@ function renderBoxResultCard(existingItem) {
       <input type="text" id="boxResultNameInput" class="form-control" style="font-size: 1.05rem; font-weight: 700; color: #fff; background: rgba(255,255,255,0.08); border-color: rgba(56, 189, 248, 0.4); padding: 8px 10px;" value="${escapeHtml(name)}">
     </div>
 
-    <div class="box-badges">
+    <div class="box-badges" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
       <span class="box-badge highlight">${escapeHtml(boxInfo)}</span>
       ${boxTotal > 1 ? `<span class="box-badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">Škatla ${boxNum} od ${boxTotal}</span>` : ''}
+      
+      <!-- Okenček za branje in vnos kosov / manjših škatel v škatli (iz OCR etikete) -->
+      <div class="box-badge highlight" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px;">
+        <span style="font-size: 0.76rem; font-weight: 700;">Kosov v škatli:</span>
+        <input type="number" id="boxPiecesPerBoxInput" min="1" value="${Math.max(1, parseInt(parsed.quantityInBox, 10) || 1)}" style="width: 52px; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.5); color: #38bdf8; font-weight: 800; text-align: center; border-radius: 4px; padding: 2px 4px; font-size: 0.95rem;" oninput="updatePiecesPerBox(this.value)">
+        <span style="font-size: 0.72rem; color: var(--text-muted);">(manjših škatel)</span>
+      </div>
     </div>
 
     ${smartShelfHintHtml}
@@ -3251,22 +3258,44 @@ function renderBoxResultCard(existingItem) {
     ${boxBreakdownHtml}
     ${stockInfoHtml}
 
-    <!-- Izbira števila škatel (množilnik) -->
-    <div class="box-multiplier-row">
-      <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Škatel:</span>
-      <button type="button" class="mult-btn ${currentMultiplier === 1 ? 'active' : ''}" onclick="setBoxMultiplier(1)">1x</button>
-      <button type="button" class="mult-btn ${currentMultiplier === 2 ? 'active' : ''}" onclick="setBoxMultiplier(2)">2x</button>
-      <button type="button" class="mult-btn ${currentMultiplier === 5 ? 'active' : ''}" onclick="setBoxMultiplier(5)">5x</button>
-      <button type="button" class="mult-btn ${currentMultiplier === 10 ? 'active' : ''}" onclick="setBoxMultiplier(10)">10x</button>
+    <!-- Vnos števila škatel z namenskim okenčkom za ročni vpis ter hitrimi gumbi -->
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin: 4px 0; display: flex; flex-direction: column; gap: 6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
+          Število škatel:
+        </span>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(-1)" style="padding: 4px 10px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">-</button>
+          <input type="number" id="boxMultiplierInput" min="1" value="${currentMultiplier}" style="width: 60px; text-align: center; font-size: 1.05rem; font-weight: 800; color: #fff; background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 4px 6px;" oninput="setBoxMultiplierCustom(this.value)">
+          <button type="button" class="btn-sm" onclick="changeBoxMultiplierDelta(1)" style="padding: 4px 10px; font-weight: 800; background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #fff; border-radius: 6px; font-size: 0.9rem;">+</button>
+        </div>
+      </div>
+
+      <div class="box-multiplier-row" style="margin: 0; justify-content: flex-end; gap: 6px;">
+        <span style="font-size: 0.72rem; color: var(--text-dim); margin-right: auto;">Hitri izbor:</span>
+        <button type="button" class="mult-btn ${currentMultiplier === 1 ? 'active' : ''}" onclick="setBoxMultiplier(1)">1x</button>
+        <button type="button" class="mult-btn ${currentMultiplier === 2 ? 'active' : ''}" onclick="setBoxMultiplier(2)">2x</button>
+        <button type="button" class="mult-btn ${currentMultiplier === 5 ? 'active' : ''}" onclick="setBoxMultiplier(5)">5x</button>
+        <button type="button" class="mult-btn ${currentMultiplier === 10 ? 'active' : ''}" onclick="setBoxMultiplier(10)">10x</button>
+      </div>
+
+      <!-- Izračun skupaj kosov / manjših škatel -->
+      <div id="boxCalcSummary" style="font-size: 0.8rem; font-weight: 600; color: var(--primary); text-align: right; margin-top: 2px;">
+        ${(parseInt(parsed.quantityInBox, 10) > 1) ? `Skupaj: ${currentMultiplier} škatel × ${parsed.quantityInBox} kos = ${currentMultiplier * parsed.quantityInBox} kosov (manjših škatel)` : `Skupaj: ${currentMultiplier} škatel`}
+      </div>
     </div>
 
     <!-- Hitra skladiščna dejanja za prevzem in izdajo -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
-      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px;">
-        PREVZEMI (+${currentMultiplier} škatel)
+      <button id="btnConfirmReceiveBox" class="btn-primary" onclick="executeBoxStockChange('in')" style="margin-top:0; padding: 12px; font-weight: 800;">
+        ${(parseInt(parsed.quantityInBox, 10) > 1) 
+          ? `PREVZEMI (+${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos • ${currentMultiplier}x šk.)` 
+          : `PREVZEMI (+${currentMultiplier} škatel)`}
       </button>
-      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px;">
-        IZDAJ (-${currentMultiplier} škatel)
+      <button id="btnConfirmIssueBox" class="btn-secondary" onclick="executeBoxStockChange('out')" style="margin-top:0; padding: 12px; font-weight: 800;">
+        ${(parseInt(parsed.quantityInBox, 10) > 1) 
+          ? `IZDAJ (-${currentMultiplier * parseInt(parsed.quantityInBox, 10)} kos • ${currentMultiplier}x šk.)` 
+          : `IZDAJ (-${currentMultiplier} škatel)`}
       </button>
     </div>
 
@@ -3289,24 +3318,77 @@ window.applySuggestedShelf = function(shelf) {
   }
 };
 
+window.updatePiecesPerBox = function(val) {
+  const num = Math.max(1, parseInt(val, 10) || 1);
+  if (currentScannedBox) {
+    currentScannedBox.quantityInBox = num;
+  }
+  updateActionButtons();
+};
+
+window.setBoxMultiplierCustom = function(val) {
+  currentMultiplier = Math.max(1, parseInt(val, 10) || 1);
+  updateActionButtons();
+  updateMultiplierButtons();
+};
+
+window.changeBoxMultiplierDelta = function(delta) {
+  currentMultiplier = Math.max(1, (parseInt(currentMultiplier, 10) || 1) + delta);
+  const input = document.getElementById('boxMultiplierInput');
+  if (input) input.value = currentMultiplier;
+  updateActionButtons();
+  updateMultiplierButtons();
+};
+
 window.setBoxMultiplier = function(m) {
-  currentMultiplier = Number(m) || 1;
+  currentMultiplier = Math.max(1, parseInt(m, 10) || 1);
+  const input = document.getElementById('boxMultiplierInput');
+  if (input) input.value = currentMultiplier;
+  updateActionButtons();
+  updateMultiplierButtons();
+};
+
+function updateMultiplierButtons() {
+  const btns = document.querySelectorAll('.mult-btn');
+  btns.forEach(b => {
+    const val = parseInt(b.textContent.replace('x', ''), 10);
+    if (val === currentMultiplier) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+}
+
+function updateActionButtons() {
+  const piecesEl = document.getElementById('boxPiecesPerBoxInput');
+  const pieces = Math.max(1, parseInt(piecesEl ? piecesEl.value : (currentScannedBox?.quantityInBox || 1), 10) || 1);
+  const boxes = Math.max(1, parseInt(currentMultiplier, 10) || 1);
+  const totalAmount = pieces * boxes;
+
   const inBtn = document.getElementById('btnConfirmReceiveBox');
   const outBtn = document.getElementById('btnConfirmIssueBox');
-  if (inBtn) inBtn.textContent = `PREVZEMI (+${currentMultiplier} škatel)`;
-  if (outBtn) outBtn.textContent = `IZDAJ (-${currentMultiplier} škatel)`;
+  const summaryEl = document.getElementById('boxCalcSummary');
 
-  const btns = document.querySelectorAll('.mult-btn');
-  btns.forEach(b => b.classList.remove('active'));
-  const activeBtn = Array.from(btns).find(b => b.textContent.trim() === `${m}x`);
-  if (activeBtn) activeBtn.classList.add('active');
-};
+  if (pieces > 1) {
+    if (inBtn) inBtn.textContent = `PREVZEMI (+${totalAmount} kos • ${boxes}x šk.)`;
+    if (outBtn) outBtn.textContent = `IZDAJ (-${totalAmount} kos • ${boxes}x šk.)`;
+    if (summaryEl) summaryEl.textContent = `Skupaj: ${boxes} škatel × ${pieces} kos = ${totalAmount} kosov (manjših škatel)`;
+  } else {
+    if (inBtn) inBtn.textContent = `PREVZEMI (+${boxes} škatel)`;
+    if (outBtn) outBtn.textContent = `IZDAJ (-${boxes} škatel)`;
+    if (summaryEl) summaryEl.textContent = `Skupaj: ${boxes} škatel`;
+  }
+}
 
 window.executeBoxStockChange = async function(direction) {
   if (!currentScannedBox) return;
 
   const sku = currentScannedBox.articleNumber;
-  const totalAmount = currentMultiplier;
+  const piecesPerBox = Math.max(1, parseInt(document.getElementById('boxPiecesPerBoxInput')?.value, 10) || currentScannedBox.quantityInBox || 1);
+  const boxCount = Math.max(1, parseInt(document.getElementById('boxMultiplierInput')?.value, 10) || currentMultiplier || 1);
+  const totalAmount = piecesPerBox * boxCount;
+
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || `Artikel ${sku}`;
   const boxLocation = document.getElementById('boxResultLocationInput')?.value?.trim() || '';
   const boxNum = currentScannedBox.boxCurrent || 1;
@@ -3319,7 +3401,7 @@ window.executeBoxStockChange = async function(direction) {
     const boxes = {};
     for (let b = 1; b <= boxTotal; b++) {
       boxes[b] = {
-        count: (b === boxNum) ? 0 : 0,
+        count: 0,
         location: (b === boxNum && boxLocation) ? boxLocation : (boxLocation || 'Prevzemno območje')
       };
     }
@@ -3348,13 +3430,16 @@ window.executeBoxStockChange = async function(direction) {
     await recordReceivingEntry(item.sku, chosenName, boxNum, boxTotal, boxLocation || 'Glavni regal', totalAmount);
   }
 
-  const note = `${currentMultiplier}x škatla (${boxNum}/${boxTotal})`;
+  const note = (piecesPerBox > 1)
+    ? `${boxCount}x škatla (${boxNum}/${boxTotal}), ${piecesPerBox} manjših škatel/kosov v škatli`
+    : `${boxCount}x škatla (${boxNum}/${boxTotal})`;
   const delta = (direction === 'in') ? totalAmount : -totalAmount;
 
   await DB.adjustStock(item.sku, delta, note, direction, boxNum, boxLocation);
   if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
-  showToast(direction === 'in' ? `Prevzeto: +${totalAmount} škatel (${chosenName})` : `Izdano: -${totalAmount} škatel (${chosenName})`);
+  const unitDesc = (piecesPerBox > 1) ? `${totalAmount} kos (${boxCount} škat.)` : `${totalAmount} škatel`;
+  showToast(direction === 'in' ? `Prevzeto: +${unitDesc} (${chosenName})` : `Izdano: -${unitDesc} (${chosenName})`);
 
   // Osveži prikaz
   const updatedItem = await DB.getItemById(item.sku);
@@ -3366,6 +3451,10 @@ window.openAddFromScannedBox = function() {
   if (!currentScannedBox) return;
 
   const chosenName = document.getElementById('boxResultNameInput')?.value?.trim() || currentScannedBox.name || '';
+  const piecesPerBox = Math.max(1, parseInt(document.getElementById('boxPiecesPerBoxInput')?.value, 10) || currentScannedBox.quantityInBox || 1);
+  const boxCount = Math.max(1, parseInt(document.getElementById('boxMultiplierInput')?.value, 10) || currentMultiplier || 1);
+  const totalAmount = piecesPerBox * boxCount;
+
   const modalItem = document.getElementById('modalItem');
   const formItem = document.getElementById('formItem');
   formItem.reset();
@@ -3373,7 +3462,7 @@ window.openAddFromScannedBox = function() {
   document.getElementById('itemSku').value = currentScannedBox.articleNumber || '';
   document.getElementById('itemName').value = chosenName;
   document.getElementById('itemBoxInfo').value = `Box ${currentScannedBox.boxCurrent}/${currentScannedBox.boxTotal}`;
-  document.getElementById('itemQuantity').value = 1;
+  document.getElementById('itemQuantity').value = totalAmount;
   document.getElementById('modalItemTitle').textContent = 'Nov artikel iz škatle';
   document.getElementById('btnDeleteItem').style.display = 'none';
   modalItem.style.display = 'flex';
@@ -3381,13 +3470,15 @@ window.openAddFromScannedBox = function() {
 
 async function handleManual7DigitLookup(code) {
   const item = await DB.getItemBySKU(code);
-  const parsed = {
-    articleNumber: code,
-    name: item ? item.name : `Artikel ${code}`,
-    boxCurrent: 1,
-    boxTotal: item ? item.boxTotal : 1,
-    rawText: code
-  };
+  const parsed = WarehouseLabelParser.parse(code) || {};
+  parsed.articleNumber = code;
+  if (!parsed.name || parsed.name === `Artikel ${code}`) {
+    parsed.name = item ? item.name : `Artikel ${code}`;
+  }
+  parsed.boxCurrent = 1;
+  parsed.boxTotal = item ? item.boxTotal : 1;
+  parsed.quantityInBox = parsed.quantityInBox || 1;
+  parsed.rawText = code;
   await handleBoxScanResult(parsed);
 }
 
