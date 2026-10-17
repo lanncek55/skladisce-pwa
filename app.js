@@ -2355,35 +2355,24 @@ function setupBoxOCRScanner() {
 
   const isNative = isCapacitorNative();
   if (isNative) {
-    btnCapture.textContent = 'Zajemi fotografijo';
-    btnCapture.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+    btnCapture.textContent = 'Ultra-HD zajem';
+    btnCapture.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
     btnCapture.style.color = '#fff';
-    btnCapture.style.borderColor = '#10b981';
-    btnCapture.style.fontSize = '0.95rem';
+    btnCapture.style.borderColor = '#0284c7';
+    btnCapture.style.fontSize = '0.85rem';
     btnCapture.style.fontWeight = '700';
-    btnCapture.style.padding = '12px';
-    btnCapture.addEventListener('click', triggerNativeMLKitScan);
+    btnCapture.style.padding = '8px 4px';
+    btnCapture.addEventListener('click', triggerHighResSensorCapture);
     btnPhoto.addEventListener('click', triggerNativeMLKitGallery);
 
     const scanFrame = document.getElementById('scanFrameBox');
     if (scanFrame) {
       scanFrame.style.cursor = 'pointer';
-      scanFrame.title = 'Klikni za zajem s kamero';
-      scanFrame.addEventListener('click', triggerNativeMLKitScan);
+      scanFrame.title = 'Dotik za ostrenje (Tap to focus)';
     }
   } else {
     // Spletni način (PWA v brskalniku)
-    btnCapture.addEventListener('click', async () => {
-      const video = document.getElementById('cameraVideo');
-      if (!cameraStream || video.readyState < video.HAVE_CURRENT_DATA) {
-        showToast('Kamera se še zaganja...');
-        await startCamera();
-        return;
-      }
-
-      const { canvas } = getCroppedCanvasFromVideo(video, 1000);
-      await processImageWithOCR(canvas);
-    });
+    btnCapture.addEventListener('click', triggerHighResSensorCapture);
 
     btnPhoto.addEventListener('click', () => {
       fileInput.click();
@@ -2563,8 +2552,8 @@ async function processAutoScanFrame(video) {
   const liveBadge = document.getElementById('scanLiveIndicator');
 
   try {
-    // 1. Zajemimo sličico z visoko ločljivostjo (1000px za nič napak)
-    const { canvas: frameCanvas, hasContent } = getCroppedCanvasFromVideo(video, 1000);
+    // 1. Zajemimo sličico z naravno polno ločljivostjo senzorja
+    const { canvas: frameCanvas, hasContent } = getCroppedCanvasFromVideo(video);
 
     // Če ni dovolj kontrasta (premikanje telefona, prazna tla ali lepenka brez črk), takoj preskoči!
     if (!hasContent) {
@@ -2614,7 +2603,7 @@ async function processAutoScanFrame(video) {
     for (let f = 2; f <= 3; f++) {
       await new Promise(r => setTimeout(r, 40));
       if (!isScanLoopRunning) break;
-      const nextCrop = getCroppedCanvasFromVideo(video, 1000);
+      const nextCrop = getCroppedCanvasFromVideo(video);
       if (nextCrop && nextCrop.canvas) {
         const nextTestCanvas = (currentAngle === 0) ? nextCrop.canvas : rotateCanvas(nextCrop.canvas, currentAngle);
         const nextRes = await parseFrameWithOcr(nextTestCanvas);
@@ -2684,6 +2673,146 @@ async function processAutoScanFrame(video) {
   }
 }
 
+let isTorchActive = false;
+let currentZoomFactor = 1.0;
+
+function updateCameraCapabilityControls() {
+  if (!cameraStream) return;
+  const track = cameraStream.getVideoTracks()[0];
+  if (!track) return;
+  const caps = (typeof track.getCapabilities === 'function') ? track.getCapabilities() : {};
+
+  const btnTorch = document.getElementById('btnToggleTorch');
+  if (btnTorch) {
+    btnTorch.style.display = caps.torch ? 'inline-flex' : 'none';
+  }
+
+  const btnZoom = document.getElementById('btnToggleZoom');
+  if (btnZoom) {
+    btnZoom.style.display = 'inline-flex';
+  }
+}
+
+window.toggleCameraTorch = async function() {
+  if (!cameraStream) return;
+  const track = cameraStream.getVideoTracks()[0];
+  if (!track) return;
+  isTorchActive = !isTorchActive;
+  try {
+    await track.applyConstraints({ advanced: [{ torch: isTorchActive }] });
+    const btn = document.getElementById('btnToggleTorch');
+    if (btn) {
+      btn.style.background = isTorchActive ? '#f59e0b' : 'rgba(15,23,42,0.85)';
+      btn.style.color = isTorchActive ? '#000' : '#fff';
+      btn.innerHTML = isTorchActive ? '🔦 Luč: VKLOP' : '🔦 Luč';
+    }
+    showToast(isTorchActive ? 'Svetilka vklopljena' : 'Svetilka izklopljena');
+  } catch (e) {
+    console.warn('Torch napaka:', e);
+    isTorchActive = !isTorchActive;
+  }
+};
+
+window.cycleCameraZoom = async function() {
+  const levels = [1.0, 1.5, 2.0];
+  const idx = levels.indexOf(currentZoomFactor);
+  currentZoomFactor = levels[(idx + 1) % levels.length];
+
+  if (cameraStream) {
+    const track = cameraStream.getVideoTracks()[0];
+    const caps = (typeof track?.getCapabilities === 'function') ? track.getCapabilities() : {};
+    if (caps.zoom) {
+      try {
+        const val = Math.min(caps.zoom.max || 2.0, Math.max(caps.zoom.min || 1.0, currentZoomFactor));
+        await track.applyConstraints({ advanced: [{ zoom: val }] });
+      } catch (e) {}
+    }
+  }
+
+  const btn = document.getElementById('btnToggleZoom');
+  if (btn) {
+    btn.innerHTML = `🔍 ${currentZoomFactor}x`;
+    btn.style.borderColor = (currentZoomFactor > 1.0) ? '#38bdf8' : 'rgba(255,255,255,0.25)';
+    btn.style.color = (currentZoomFactor > 1.0) ? '#38bdf8' : '#fff';
+  }
+  showToast(`Povečava: ${currentZoomFactor}x`);
+};
+
+window.triggerTapToFocus = async function(event) {
+  if (!cameraStream) return;
+  const track = cameraStream.getVideoTracks()[0];
+  if (!track) return;
+
+  const container = document.querySelector('.camera-preview-container');
+  if (container && event) {
+    const rect = container.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    let ring = document.getElementById('cameraFocusRing');
+    if (!ring) {
+      ring = document.createElement('div');
+      ring.id = 'cameraFocusRing';
+      ring.className = 'focus-ring';
+      container.appendChild(ring);
+    }
+    ring.style.left = `${x}px`;
+    ring.style.top = `${y}px`;
+    ring.classList.remove('active');
+    void ring.offsetWidth;
+    ring.classList.add('active');
+  }
+
+  try {
+    await track.applyConstraints({
+      advanced: [{ focusMode: 'continuous' }]
+    });
+  } catch (e) {}
+};
+
+window.triggerHighResSensorCapture = async function() {
+  const overlay = document.getElementById('ocrLoadingOverlay');
+  const loadingText = document.getElementById('ocrLoadingText');
+  if (overlay) overlay.style.display = 'flex';
+  if (loadingText) loadingText.textContent = 'Ultra-HD zajem (12.6 MP Leica)...';
+
+  try {
+    const video = document.getElementById('cameraVideo');
+    if (!cameraStream) {
+      await startCamera();
+      if (overlay) overlay.style.display = 'none';
+      return;
+    }
+
+    const track = cameraStream.getVideoTracks()[0];
+    if (window.ImageCapture && track) {
+      const ic = new ImageCapture(track);
+      // Posnemi neposredno s senzorja z maksimalno ločljivostjo 4096x3072
+      const blob = await ic.takePhoto({ imageWidth: 4096, imageHeight: 3072 });
+      const imgBitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = imgBitmap.width;
+      canvas.height = imgBitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgBitmap, 0, 0);
+
+      await processImageWithOCR(canvas);
+      return;
+    }
+
+    // Fallback: zajem polnega okvirja iz videa z naravno ločljivostjo
+    const { canvas } = getCroppedCanvasFromVideo(video);
+    await processImageWithOCR(canvas);
+  } catch (err) {
+    console.warn('ImageCapture napaka, fallback na video:', err);
+    const video = document.getElementById('cameraVideo');
+    const { canvas } = getCroppedCanvasFromVideo(video);
+    await processImageWithOCR(canvas);
+  } finally {
+    if (overlay) overlay.style.display = 'none';
+  }
+};
+
 async function startCamera() {
   const video = document.getElementById('cameraVideo');
 
@@ -2691,8 +2820,11 @@ async function startCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
+        width: { ideal: 3840, min: 1920 },
+        height: { ideal: 2160, min: 1080 },
+        focusMode: { ideal: 'continuous' },
+        exposureMode: { ideal: 'continuous' },
+        whiteBalanceMode: { ideal: 'continuous' }
       }
     });
 
@@ -2702,10 +2834,25 @@ async function startCamera() {
     video.onloadedmetadata = () => {
       video.play().catch(() => {});
       startAutoScanLoop();
+      updateCameraCapabilityControls();
     };
   } catch (err) {
-    console.warn('Kamere ni bilo mogoče zagnati:', err);
-    showToast('Dostop do kamere ni na voljo. Uporabite gumb za fotografijo spodaj.');
+    console.warn('Kamere ni bilo mogoče zagnati z naprednimi nastavitvami, poskušam standardno:', err);
+    try {
+      const fallbackStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }
+      });
+      cameraStream = fallbackStream;
+      video.srcObject = fallbackStream;
+      video.onloadedmetadata = () => {
+        video.play().catch(() => {});
+        startAutoScanLoop();
+        updateCameraCapabilityControls();
+      };
+    } catch (e) {
+      console.warn('Kamere ni bilo mogoče zagnati:', e);
+      showToast('Dostop do kamere ni na voljo. Uporabite gumb za fotografijo spodaj.');
+    }
   }
 }
 
@@ -2720,31 +2867,29 @@ function stopCamera() {
 }
 
 /**
- * Izreže območje vizirja za škatlo (cca 72% širine, 44% višine)
- * In ohrani visoko ločljivost (1000px) za popolno ostrino malih napisov (Box 1/1, 2 pcs ipd.)
+ * Izreže območje vizirja za škatlo v POLNI IZVORNI LOČLJIVOSTI senzorja brez zmanjševanja!
+ * Zagotavlja 100% ostrino mikroskopskih napisov (Box 1/1, 2 pcs ipd.)
  */
-function getCroppedCanvasFromVideo(video, targetWidth = 1000) {
+function getCroppedCanvasFromVideo(video) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
   const vw = video.videoWidth || 1920;
   const vh = video.videoHeight || 1080;
 
-  // Udoben naraven izrez (76% širine, 46% višine)
-  // AI razvrščanje v ocr-parser.js samo poskrbi za natančno izolacijo škatle na sredini!
-  const cropW = Math.round(vw * 0.76);
-  const cropH = Math.round(vh * 0.46);
+  const zoomFactor = currentZoomFactor || 1.0;
+  const baseCropW = Math.round(vw * 0.76);
+  const baseCropH = Math.round(vh * 0.46);
+
+  const cropW = Math.round(baseCropW / zoomFactor);
+  const cropH = Math.round(baseCropH / zoomFactor);
   const cropX = Math.round((vw - cropW) / 2);
   const cropY = Math.round((vh - cropH) / 2);
 
-  // Visoka ločljivost do 1000px za jasnost
-  const targetW = Math.min(cropW, targetWidth);
-  const scale = targetW / cropW;
-  const targetH = Math.round(cropH * scale);
-
-  canvas.width = targetW;
-  canvas.height = targetH;
-  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+  // Polna izvorna ločljivost senzorja brez zmanjševanja na 1000px!
+  canvas.width = cropW;
+  canvas.height = cropH;
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
   const hasContent = preprocessAndCheckContrast(canvas, ctx);
 

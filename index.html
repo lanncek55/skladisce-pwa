@@ -150,15 +150,23 @@
       </div>
 
       <!-- Kamera z vizirjem za škatlo -->
-      <div class="camera-preview-container">
+      <div class="camera-preview-container" onclick="triggerTapToFocus(event)">
         <video id="cameraVideo" playsinline autoplay muted></video>
         <canvas id="ocrPreprocessCanvas" style="display: none;"></canvas>
-        <div class="camera-status-bar">
+        <div class="camera-status-bar" onclick="event.stopPropagation()">
           <button id="btnToggleAutoScan" class="auto-scan-toggle active" title="Vklopi ali izklopi samodejno branje">
             <span class="live-pulse-dot"></span>
-            <span id="autoScanStatusText">SAMODEJNO BRANJE: VKLOP</span>
+            <span id="autoScanStatusText">SAMODEJNO: VKLOP</span>
           </button>
-          <span id="scanLiveIndicator" class="scan-state-pill">Pripravljeno</span>
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <button id="btnToggleTorch" type="button" onclick="toggleCameraTorch()" class="btn-sm" style="display:none; padding: 4px 8px; font-size: 0.72rem; background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.25); color: #fff; border-radius: 12px; cursor: pointer; font-weight: 700;">
+              🔦 Luč
+            </button>
+            <button id="btnToggleZoom" type="button" onclick="cycleCameraZoom()" class="btn-sm" style="padding: 4px 8px; font-size: 0.72rem; background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.25); color: #fff; border-radius: 12px; cursor: pointer; font-weight: 700;">
+              🔍 1x
+            </button>
+            <span id="scanLiveIndicator" class="scan-state-pill">Pripravljeno</span>
+          </div>
         </div>
         <div class="scanner-overlay">
           <div class="scan-frame box-frame" id="scanFrameBox">
