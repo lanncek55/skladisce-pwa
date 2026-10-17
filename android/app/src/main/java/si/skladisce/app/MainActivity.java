@@ -158,6 +158,23 @@ public class MainActivity extends BridgeActivity {
                         recognizer.close();
                         JSObject ret = new JSObject();
                         ret.put("text", result.getText());
+
+                        com.getcapacitor.JSArray blocksArray = new com.getcapacitor.JSArray();
+                        for (com.google.mlkit.vision.text.Text.TextBlock block : result.getTextBlocks()) {
+                            JSObject b = new JSObject();
+                            b.put("rawValue", block.getText());
+                            android.graphics.Rect box = block.getBoundingBox();
+                            if (box != null) {
+                                JSObject bb = new JSObject();
+                                bb.put("x", box.left);
+                                bb.put("y", box.top);
+                                bb.put("width", box.width());
+                                bb.put("height", box.height());
+                                b.put("boundingBox", bb);
+                            }
+                            blocksArray.put(b);
+                        }
+                        ret.put("blocks", blocksArray);
                         call.resolve(ret);
                     })
                     .addOnFailureListener(e -> {

@@ -119,6 +119,8 @@ const WarehouseLabelParser = {
       '3690514': { name: 'Dining chair ADSLEV beige/n.oak', pieces: 2, box: 'Box 1/1' },
       '3690565': { name: 'Mirror BALSLEV 35x127 w.oak', pieces: 4, box: 'Box 1/1' },
       '3725150': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
+      '37251550': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
+      '3725155': { name: 'Garden chair FJELLERUP', pieces: 4, box: 'Box 1/1' },
       '3759803': { name: 'Stacking chair LARVIK grey', pieces: 24, box: 'Box 1/1' },
       '4334604': { name: 'ULVIK 50x70 cm', pieces: 12, box: 'Box 1/1' },
       '4318500': { name: 'PIL VANSE foam 30x47', pieces: 8, box: 'Box 1/1' },
@@ -130,7 +132,7 @@ const WarehouseLabelParser = {
       '3670619': { name: 'DIVERSES', pieces: 1, box: 'Box 1/1' }
     };
 
-    function sanitizeNum7(s) {
+    function sanitizeNum(s) {
       if (!s) return '';
       return s.replace(/O/gi, '0').replace(/[Il]/g, '1');
     }
@@ -180,46 +182,21 @@ const WarehouseLabelParser = {
       }
     }
 
-    // B. Če ni blokov ali če noben blok ni samostojen, analiziramo vrstice s plavajočim oknom
+    // B. Vedno vključimo celotno besedilo kot krovnega kandidata (za primere večstolpčnih etiket, kjer so oznake v enem bloku, vrednosti pa v drugem)
     const allLines = rawText
       .split(/\r?\n/)
       .map(l => l.trim())
       .filter(l => l.length > 0);
 
-    if (candidates.length === 0) {
-      const anchorIndices = [];
-      for (let i = 0; i < allLines.length; i++) {
-        const line = allLines[i];
-        if (/(?:product|article|art\.?|artikel|item|sku|vare[\s.:]*nr)[\s.:]*[0-9OIl]{7}/i.test(line) ||
-            /\b[0-9OIl]{7}\s*[\/|\-]/i.test(line) ||
-            /\b(?:box|colli)[\s.:]*[0-9]+\s*[\/|\\]\s*[0-9]+/i.test(line)) {
-          anchorIndices.push(i);
-        }
-      }
-
-      if (anchorIndices.length === 0) {
-        candidates.push({
-          lines: allLines,
-          fullText: rawText,
-          center: null
-        });
-      } else {
-        for (const idx of anchorIndices) {
-          const start = Math.max(0, idx - 3);
-          const end = Math.min(allLines.length - 1, idx + 4);
-          const windowLines = allLines.slice(start, end + 1);
-          candidates.push({
-            lines: windowLines,
-            fullText: windowLines.join('\n'),
-            center: null
-          });
-        }
-      }
-    }
+    candidates.push({
+      lines: allLines,
+      fullText: rawText,
+      center: null
+    });
 
     // AI TOČKOVANJE IN EVALVACIJA VSAKEGA KANDIDATA
     // Strogo pravilo proti naključnim številkam:
-    // Izolirana 7-mestna številka BREZ oznake, brez JYSK kosa/katalog ujemanja ali Box konteksta ima oceno 0 in se ZAVRNE!
+    // Izolirana 7 ali 8 mestna številka BREZ oznake, brez JYSK kosa/katalog ujemanja ali Box konteksta ima oceno 0 in se ZAVRNE!
     const evaluatedCandidates = [];
 
     for (const cand of candidates) {
@@ -232,26 +209,45 @@ const WarehouseLabelParser = {
       // Nivo 1 (+95): Izrecna oznaka (Product no, Art. no, Artikel, Item, SKU, Vare nr)
       for (let i = 0; i < cLines.length; i++) {
         const line = cLines[i];
-        const m = line.match(/(?:product\s*(?:no\.?|number)?|article|art\.?\s*(?:no\.?|st\.?|št\.?|nr\.?)?|artikel|item|sku|vare[\s.:]*nr|koda|šifra)[\s.:]*([0-9OIl]{7})\b/i);
-        if (m) {
-          const cleaned = sanitizeNum7(m[1]);
-          if (/^[0-9]{7}$/.test(cleaned)) {
-            sku = cleaned;
-            skuScore = 95;
-            candArticleIdx = i;
-            break;
+        if (/(?:product\s*(?:no\.?|number)?|article|art\.?\s*(?:no\.?|st\.?|št\.?|nr\.?)?|artikel|item|sku|vare[\s.:]*nr|koda|šifra)/i.test(line)) {
+          // A) V isti vrstici
+          const inlineM = line.match(/\b([0-9OIl]{7,8})\b/);
+          if (inlineM) {
+            const cleaned = sanitizeNum(inlineM[1]);
+            if (/^[0-9]{7,8}$/.test(cleaned)) {
+              sku = cleaned;
+              skuScore = 95;
+              candArticleIdx = i;
+              break;
+            }
           }
+          // B) V naslednjih 1-6 vrsticah (za večstolpčne ali zlomljene etikete)
+          for (let j = i + 1; j <= Math.min(cLines.length - 1, i + 6); j++) {
+            const nextL = cLines[j];
+            if (/barcode|ean|batch|order|tel|phone|kg|cm|natural|color/i.test(nextL)) continue;
+            const nextM = nextL.match(/\b([0-9OIl]{7,8})\b/);
+            if (nextM) {
+              const cleaned = sanitizeNum(nextM[1]);
+              if (/^[0-9]{7,8}$/.test(cleaned)) {
+                sku = cleaned;
+                skuScore = 95;
+                candArticleIdx = j;
+                break;
+              }
+            }
+          }
+          if (sku) break;
         }
       }
 
-      // Nivo 2 (+90): Standardni JYSK vzorec "7 števk / 8 števk" (npr. 3725150 / 88225001)
+      // Nivo 2 (+90): Standardni JYSK vzorec "7-8 števk / 3-10 števk" (npr. 37251550 / 8822 ali 3725150 / 88225001)
       if (!sku) {
         for (let i = 0; i < cLines.length; i++) {
           const line = cLines[i];
-          const slashM = line.match(/\b([0-9OIl]{7})\s*[\/|\\]\s*[0-9]{6,10}\b/);
+          const slashM = line.match(/\b([0-9OIl]{7,8})\s*[\/|\\]\s*[0-9]{3,10}\b/);
           if (slashM) {
-            const cleaned = sanitizeNum7(slashM[1]);
-            if (/^[0-9]{7}$/.test(cleaned)) {
+            const cleaned = sanitizeNum(slashM[1]);
+            if (/^[0-9]{7,8}$/.test(cleaned)) {
               sku = cleaned;
               skuScore = 90;
               candArticleIdx = i;
@@ -261,19 +257,29 @@ const WarehouseLabelParser = {
         }
       }
 
-      // Nivo 3 (+85): 7 števk, ki se ujemajo z bazo skladišča ali znanim katalogom
+      // Nivo 3 (+85): 7 ali 8 števk, ki se ujemajo z bazo skladišča ali znanim katalogom
       if (!sku) {
         for (let i = 0; i < cLines.length; i++) {
           const line = cLines[i];
           if (/order|barcode|batch|ean|tel|datum/i.test(line)) continue;
-          const all7 = line.match(/\b([0-9]{7})\b/g);
-          if (all7) {
-            for (const testNum of all7) {
+          const allNums = line.match(/\b([0-9]{7,8})\b/g);
+          if (allNums) {
+            for (const testNum of allNums) {
               if (knownCatalog[testNum] || options?.knownSkus?.has?.(testNum)) {
                 sku = testNum;
                 skuScore = 85;
                 candArticleIdx = i;
                 break;
+              }
+              // Preveri 7-mestno predpono če je v bazi shranjena 7-mestna
+              if (testNum.length === 8) {
+                const sub7 = testNum.substring(0, 7);
+                if (knownCatalog[sub7] || options?.knownSkus?.has?.(sub7)) {
+                  sku = sub7;
+                  skuScore = 85;
+                  candArticleIdx = i;
+                  break;
+                }
               }
             }
           }
@@ -281,14 +287,14 @@ const WarehouseLabelParser = {
         }
       }
 
-      // Nivo 4 (+75): 7 števk neposredno pred nazivom artikla (npr. "3610115 - Pedestal")
+      // Nivo 4 (+75): 7 ali 8 števk neposredno pred nazivom artikla (npr. "3610115 - Pedestal")
       if (!sku) {
         for (let i = 0; i < cLines.length; i++) {
           const line = cLines[i];
-          const nameM = line.match(/\b([0-9OIl]{7})\s*[\-\–]\s*[A-Z][a-zA-Z]/);
+          const nameM = line.match(/\b([0-9OIl]{7,8})\s*[\-\–]\s*[A-Z][a-zA-Z]/);
           if (nameM) {
-            const cleaned = sanitizeNum7(nameM[1]);
-            if (/^[0-9]{7}$/.test(cleaned)) {
+            const cleaned = sanitizeNum(nameM[1]);
+            if (/^[0-9]{7,8}$/.test(cleaned)) {
               sku = cleaned;
               skuScore = 75;
               candArticleIdx = i;
@@ -298,7 +304,7 @@ const WarehouseLabelParser = {
         }
       }
 
-      // Nivo 5 (+50): 7 števk z jasnim kontekstom Box X/Y in količine v isti etiketi
+      // Nivo 5 (+50): 7 ali 8 števk z jasnim kontekstom Box X/Y ali količine v isti etiketi
       if (!sku) {
         const hasBoxNearby = cLines.some(l => boxPattern.test(l));
         const hasQtyNearby = cLines.some(l => /(?:quantity|colli\s*size|qty|pcs|kom|kos)/i.test(l));
@@ -306,9 +312,9 @@ const WarehouseLabelParser = {
           for (let i = 0; i < cLines.length; i++) {
             const line = cLines[i];
             if (/order|barcode|batch|ean|tel|datum|phone|gsm/i.test(line)) continue;
-            const any7 = line.match(/\b([0-9]{7})\b/);
-            if (any7) {
-              sku = any7[1];
+            const anyM = line.match(/\b([0-9]{7,8})\b/);
+            if (anyM) {
+              sku = anyM[1];
               skuScore = 50;
               candArticleIdx = i;
               break;

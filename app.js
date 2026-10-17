@@ -2522,21 +2522,41 @@ async function runAutoScanTick() {
 }
 
 /**
- * Pomožna funkcija za analizo ene sličice s strojnim TextDetectorjem
+ * Analiza sličice z Google ML Kit (prek nativnega vtičnika MLKitDirect na Androidu ali brskalnika)
  */
 async function parseFrameWithOcr(canvas) {
-  if (!nativeTextDetector) return null;
-  try {
-    const blocks = await nativeTextDetector.detect(canvas);
-    if (!blocks || blocks.length === 0) return null;
-    const fullText = blocks.map(b => b.rawValue).join('\n');
-    return WarehouseLabelParser.parse(fullText, blocks, {
-      knownSkus: getKnownSKUsSet(),
-      imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
-    });
-  } catch (e) {
-    return null;
+  // 1. Primarno: Nativni Google ML Kit (Android aplikacija)
+  if (window.Capacitor?.Plugins?.MLKitDirect) {
+    try {
+      const base64 = canvas.toDataURL('image/jpeg', 0.82);
+      const res = await window.Capacitor.Plugins.MLKitDirect.recognizeBase64({ base64 });
+      if (!res || !res.text || !res.text.trim()) return null;
+      return WarehouseLabelParser.parse(res.text, res.blocks || null, {
+        knownSkus: getKnownSKUsSet(),
+        imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
+      });
+    } catch (e) {
+      console.warn('MLKitDirect napaka:', e);
+      return null;
+    }
   }
+
+  // 2. Sekundarno: Strojni TextDetector v brskalniku
+  if (nativeTextDetector) {
+    try {
+      const blocks = await nativeTextDetector.detect(canvas);
+      if (!blocks || blocks.length === 0) return null;
+      const fullText = blocks.map(b => b.rawValue).join('\n');
+      return WarehouseLabelParser.parse(fullText, blocks, {
+        knownSkus: getKnownSKUsSet(),
+        imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -2897,78 +2917,24 @@ function getCroppedCanvasFromVideo(video) {
 }
 
 /**
- * Zvezna izravnava svetlosti (Auto-Levels) z ohranjanjem zglajenih robov:
- * - V 0.2ms preveri, ali je v kadru besedilo
- * - Raztegne kontrast in poudari temen tisk proti lepenki brez uničenja oblike znakov!
+ * Hiter pregled prisotnosti vsebine v kadru
  */
 function preprocessAndCheckContrast(canvas, ctx) {
-  try {
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const d = imgData.data;
-
-    let minLum = 255;
-    let maxLum = 0;
-
-    for (let i = 0; i < d.length; i += 16) {
-      const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-      if (gray < minLum) minLum = gray;
-      if (gray > maxLum) maxLum = gray;
-    }
-
-    const contrast = maxLum - minLum;
-    if (contrast < 35) {
-      return false;
-    }
-
-    const range = contrast || 1;
-
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-      const normalized = Math.min(255, Math.max(0, ((gray - minLum) / range) * 255));
-      
-      const enhanced = (normalized < 130)
-        ? Math.pow(normalized / 130, 1.2) * 130
-        : normalized;
-
-      d[i] = enhanced;
-      d[i+1] = enhanced;
-      d[i+2] = enhanced;
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-    return true;
-  } catch (e) {
-    return true;
-  }
+  // Prepusti surove RGB piksle neposredno Googlovemu nevronskemu modelu ML Kit brez počasne CPU manipulacije
+  return true;
 }
 
 /**
- * Obdelava zajete slike prek strojnega TextDetectorja
+ * Obdelava zajete slike prek Google ML Kit
  */
 async function processImageWithOCR(canvas) {
   const overlay = document.getElementById('ocrLoadingOverlay');
   const loadingText = document.getElementById('ocrLoadingText');
   if (overlay) overlay.style.display = 'flex';
-  if (loadingText) loadingText.textContent = 'Obdelava slike z AI...';
+  if (loadingText) loadingText.textContent = 'Obdelava slike z Google ML Kit...';
 
   try {
-    let parsed = null;
-
-    if (nativeTextDetector) {
-      try {
-        const blocks = await nativeTextDetector.detect(canvas);
-        if (blocks && blocks.length > 0) {
-          const fullText = blocks.map(b => b.rawValue).join('\n');
-          const p = WarehouseLabelParser.parse(fullText, blocks, {
-            knownSkus: getKnownSKUsSet(),
-            imageCenter: { x: canvas.width / 2, y: canvas.height / 2 }
-          });
-          if (p && (p.articleNumber || p.isReceipt)) {
-            parsed = p;
-          }
-        }
-      } catch (e) {}
-    }
+    const parsed = await parseFrameWithOcr(canvas);
 
     if (parsed && (parsed.articleNumber || parsed.isReceipt)) {
       playSuccessBeep();
@@ -2980,7 +2946,7 @@ async function processImageWithOCR(canvas) {
 
   } catch (err) {
     console.error('Napaka pri OCR prepoznavi:', err);
-    showToast('Napaka pri branju slike.');
+    showToast('Napaka pri branju slike: ' + (err.message || err));
   } finally {
     if (overlay) overlay.style.display = 'none';
   }
